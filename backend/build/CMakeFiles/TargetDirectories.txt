@@ -1,0 +1,7 @@
+C:/Users/Holour/Desktop/OS2/backend/build/CMakeFiles/os_simulator.dir
+C:/Users/Holour/Desktop/OS2/backend/build/CMakeFiles/process_test.dir
+C:/Users/Holour/Desktop/OS2/backend/build/CMakeFiles/memory_test.dir
+C:/Users/Holour/Desktop/OS2/backend/build/CMakeFiles/fs_test.dir
+C:/Users/Holour/Desktop/OS2/backend/build/CMakeFiles/RUN_TESTS.dir
+C:/Users/Holour/Desktop/OS2/backend/build/CMakeFiles/ALL_BUILD.dir
+C:/Users/Holour/Desktop/OS2/backend/build/CMakeFiles/ZERO_CHECK.dir

@@ -1,0 +1,5 @@
+C:\Users\Holour\Desktop\OS2\backend\src\core\main.cpp;C:\Users\Holour\Desktop\OS2\backend\build\os_simulator.dir\Debug\main.obj
+C:\Users\Holour\Desktop\OS2\backend\src\memory\memory_manager.cpp;C:\Users\Holour\Desktop\OS2\backend\build\os_simulator.dir\Debug\memory_manager.obj
+C:\Users\Holour\Desktop\OS2\backend\src\process\process_manager.cpp;C:\Users\Holour\Desktop\OS2\backend\build\os_simulator.dir\Debug\process_manager.obj
+C:\Users\Holour\Desktop\OS2\backend\src\process\pcb.cpp;C:\Users\Holour\Desktop\OS2\backend\build\os_simulator.dir\Debug\pcb.obj
+C:\Users\Holour\Desktop\OS2\backend\src\fs\fs_manager.cpp;C:\Users\Holour\Desktop\OS2\backend\build\os_simulator.dir\Debug\fs_manager.obj

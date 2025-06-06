@@ -1,0 +1,97 @@
+Start testing: Jun 06 13:56 中国标准时间
+----------------------------------------------------------
+1/3 Testing: ProcessManagerTest
+1/3 Test: ProcessManagerTest
+Command: "C:/Users/Holour/Desktop/OS2/backend/build/Debug/process_test.exe"
+Directory: C:/Users/Holour/Desktop/OS2/backend/build
+"ProcessManagerTest" start time: Jun 06 13:56 中国标准时间
+Output:
+----------------------------------------------------------
+===== Starting ProcessManager Tests =====
+Memory manager initialized with 256 MB of memory.
+--- Running Test: Create Process Success ---
+Process 1 created. Size: 1024
+OK: Process created with PID 1, state is READY, and added to ready_queue.
+Process 1 terminated.
+--- Running Test: Create Process Out of Memory ---
+Error: Not enough memory to create process of size 268435457
+OK: Process creation failed as expected due to OOM.
+--- Running Test: Terminate Process Success ---
+Process 2 created. Size: 2048
+Process 2 terminated.
+OK: Process 2 terminated, removed from queues and memory was freed.
+--- Running Test: Terminate Non-existent Process ---
+OK: Terminating non-existent process failed as expected.
+--- Running Test: Scheduler ---
+Process 3 created. Size: 100
+Process 4 created. Size: 100
+OK: Scheduler correctly selected processes in FIFO order.
+Process 3 terminated.
+Process 4 terminated.
+===== All ProcessManager Tests Passed! =====
+<end of output>
+Test time =   0.93 sec
+----------------------------------------------------------
+Test Passed.
+"ProcessManagerTest" end time: Jun 06 13:56 中国标准时间
+"ProcessManagerTest" time elapsed: 00:00:00
+----------------------------------------------------------
+
+2/3 Testing: MemoryManagerTest
+2/3 Test: MemoryManagerTest
+Command: "C:/Users/Holour/Desktop/OS2/backend/build/Debug/memory_test.exe"
+Directory: C:/Users/Holour/Desktop/OS2/backend/build
+"MemoryManagerTest" start time: Jun 06 13:56 中国标准时间
+Output:
+----------------------------------------------------------
+===== Starting MemoryManager Tests =====
+--- Running Test: Initialization ---
+Memory manager initialized with 256 MB of memory.
+OK: MemoryManager initialized correctly.
+--- Running Test: Simple Allocation ---
+Memory manager initialized with 256 MB of memory.
+OK: Simple allocation works.
+--- Running Test: Allocation Out of Memory ---
+Memory manager initialized with 256 MB of memory.
+OK: Allocation correctly fails for oversized request.
+--- Running Test: Free and Merge ---
+Memory manager initialized with 256 MB of memory.
+OK: Free and merge operations work correctly.
+===== All MemoryManager Tests Passed! =====
+<end of output>
+Test time =   0.90 sec
+----------------------------------------------------------
+Test Passed.
+"MemoryManagerTest" end time: Jun 06 13:56 中国标准时间
+"MemoryManagerTest" time elapsed: 00:00:00
+----------------------------------------------------------
+
+3/3 Testing: FileSystemManagerTest
+3/3 Test: FileSystemManagerTest
+Command: "C:/Users/Holour/Desktop/OS2/backend/build/Debug/fs_test.exe"
+Directory: C:/Users/Holour/Desktop/OS2/backend/build
+"FileSystemManagerTest" start time: Jun 06 13:56 中国标准时间
+Output:
+----------------------------------------------------------
+===== Starting FileSystemManager Tests =====
+--- Running Test: FileSystem Format ---
+Memory manager initialized with 256 MB of memory.
+FileSystemManager initialized, allocated 10MB for disk.
+File system formatted. Root directory created at inode 0.
+OK: format() correctly initializes the root directory and inode table.
+--- Running Test: Create and Find Directory ---
+Memory manager initialized with 256 MB of memory.
+FileSystemManager initialized, allocated 10MB for disk.
+File system formatted. Root directory created at inode 0.
+OK: Directory '/home' created and its content is correct.
+OK: Nested directory '/home/user' created successfully.
+===== All FileSystemManager Tests Passed! =====
+<end of output>
+Test time =   0.94 sec
+----------------------------------------------------------
+Test Passed.
+"FileSystemManagerTest" end time: Jun 06 13:56 中国标准时间
+"FileSystemManagerTest" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Jun 06 13:56 中国标准时间

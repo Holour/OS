@@ -1,0 +1,377 @@
+## **操作系统模拟器 API 文档 V1.0**
+
+**基础URL**: `http://localhost:8080/api/v1`
+
+### **1. 进程管理 (Process Management)**
+
+#### 1.1 获取所有进程信息
+获取当前系统中所有进程的列表及其详细状态。
+
+**接口地址**
+`GET http://localhost:8080/api/v1/processes`
+
+**参数描述**
+*   **请求参数**: 无
+*   **响应参数**
+
+| 参数名        | 类型          | 描述                                     |
+|---------------|---------------|------------------------------------------|
+| pid           | integer       | 进程唯一标识符 (Process ID)                |
+| state         | string        | 进程当前状态 ("NEW", "READY", "RUNNING", "BLOCKED", "TERMINATED") |
+| program_counter | integer       | 程序计数器                               |
+| memory_info   | array (object)| 进程占用的内存块信息                     |
+| » base_address| integer(uint64) | 内存块起始地址                           |
+| » size        | integer(uint64) | 内存块大小（字节）                       |
+
+**请求示例**
+无
+
+**响应示例**
+*   成功：
+    ```json
+    {
+      "status": "success",
+      "data": [
+        {
+          "pid": 1,
+          "state": "RUNNING",
+          "program_counter": 1024,
+          "memory_info": [
+            {
+              "base_address": 0,
+              "size": 4096
+            }
+          ]
+        },
+        {
+          "pid": 2,
+          "state": "READY",
+          "program_counter": 0,
+          "memory_info": [
+            {
+              "base_address": 4096,
+              "size": 8192
+            }
+          ]
+        }
+      ]
+    }
+    ```
+
+#### 1.2 创建新进程
+请求操作系统内核创建一个新的进程，并为其分配指定大小的内存。
+
+**接口地址**
+`POST http://localhost:8080/api/v1/processes`
+
+**参数描述**
+*   **请求参数**
+
+| 参数名        | 类型            | 是否必须 | 描述           |
+|---------------|-----------------|----------|----------------|
+| memory_size   | integer(uint64) | 是       | 请求的内存大小（字节） |
+
+*   **响应参数**
+    成功时，响应体为新创建进程的完整信息，结构同 `1.1` 中的单个进程对象。
+
+**请求示例**
+```json
+{
+  "memory_size": 16384
+}
+```
+
+**响应示例**
+*   成功 (201 Created):
+    ```json
+    {
+      "status": "success",
+      "message": "Process created successfully.",
+      "data": {
+        "pid": 3,
+        "state": "READY",
+        "program_counter": 0,
+        "memory_info": [
+          {
+            "base_address": 12288,
+            "size": 16384
+          }
+        ]
+      }
+    }
+    ```
+*   失败 (400 Bad Request):
+    ```json
+    {
+      "status": "error",
+      "message": "Insufficient memory to create process."
+    }
+    ```
+
+#### 1.3 终止进程
+根据进程ID终止一个指定的进程，并释放其占用的所有资源。
+
+**接口地址**
+`DELETE http://localhost:8080/api/v1/processes/{pid}`
+
+**参数描述**
+*   **URL参数**
+| 参数名 | 类型    | 描述                  |
+|--------|---------|-----------------------|
+| pid    | integer | 要终止的进程的ID      |
+
+*   **响应参数**: 无
+
+**请求示例**
+无 (请求路径为 `http://localhost:8080/api/v1/processes/3`)
+
+**响应示例**
+*   成功 (200 OK):
+    ```json
+    {
+      "status": "success",
+      "message": "Process 3 terminated successfully."
+    }
+    ```
+*   失败 (404 Not Found):
+    ```json
+    {
+      "status": "error",
+      "message": "Process not found."
+    }
+    ```
+
+### **2. 调度器 (Scheduler)**
+
+#### 2.1 执行一次调度
+手动触发一次调度器操作，从就绪队列中选出下一个进程投入运行。
+
+**接口地址**
+`POST http://localhost:8080/api/v1/scheduler/tick`
+
+**参数描述**
+*   **请求参数**: 无
+*   **响应参数**: 响应体为被调度进程的完整信息，结构同 `1.1` 中的单个进程对象。如果就绪队列为空，则 `data` 字段为 `null`。
+
+**请求示例**
+无
+
+**响应示例**
+*   成功 (找到就绪进程):
+    ```json
+    {
+      "status": "success",
+      "data": {
+        "pid": 2,
+        "state": "RUNNING",
+        "program_counter": 0,
+        "memory_info": [
+          {
+            "base_address": 4096,
+            "size": 8192
+          }
+        ]
+      }
+    }
+    ```
+*   成功 (就绪队列为空):
+    ```json
+    {
+      "status": "success",
+      "data": null,
+      "message": "Ready queue is empty, no process to schedule."
+    }
+    ```
+
+#### 2.2 查看就绪队列
+获取当前在就绪队列中等待调度的所有进程。
+
+**接口地址**
+`GET http://localhost:8080/api/v1/scheduler/ready_queue`
+
+**参数描述**
+*   **请求参数**: 无
+*   **响应参数**: 响应体为一个进程对象数组，结构同 `1.1`。
+
+**请求示例**
+无
+
+**响应示例**
+*   成功：
+    ```json
+    {
+      "status": "success",
+      "data": [
+        {
+          "pid": 4,
+          "state": "READY",
+          "program_counter": 0,
+          "memory_info": [
+            {
+              "base_address": 28672,
+              "size": 1024
+            }
+          ]
+        }
+      ]
+    }
+    ```
+### **3. 内存管理 (Memory Management)**
+#### 3.1 获取内存状态
+获取当前整个系统的内存使用详情。
+
+**接口地址**
+`GET http://localhost:8080/api/v1/memory/status`
+
+**参数描述**
+*   **请求参数**: 无
+*   **响应参数**
+| 参数名        | 类型            | 描述                       |
+|---------------|-----------------|----------------------------|
+| total_memory  | integer(uint64) | 系统总内存大小（字节）     |
+| used_memory   | integer(uint64) | 已用内存大小（字节）       |
+| free_blocks   | array (object)  | 空闲内存块列表             |
+| » base_address| integer(uint64) | 空闲块起始地址             |
+| » size        | integer(uint64) | 空闲块大小（字节）         |
+
+**请求示例**
+无
+
+**响应示例**
+*   成功：
+    ```json
+    {
+      "status": "success",
+      "data": {
+        "total_memory": 268435456,
+        "used_memory": 10514432,
+        "free_blocks": [
+          {
+            "base_address": 10514432,
+            "size": 257921024
+          }
+        ]
+      }
+    }
+    ```
+### **4. 文件系统 (File System)**
+#### 4.1 格式化文件系统
+初始化文件系统，此操作会清空所有文件和目录，并重建根目录。这是一个危险操作。
+
+**接口地址**
+`POST http://localhost:8080/api/v1/fs/format`
+
+**参数描述**
+*   **请求参数**: 无
+*   **响应参数**: 无
+
+**请求示例**
+无
+
+**响应示例**
+*   成功：
+    ```json
+    {
+      "status": "success",
+      "message": "File system formatted successfully."
+    }
+    ```
+
+#### 4.2 创建新目录
+在指定的父目录下创建一个新的空目录。
+
+**接口地址**
+`POST http://localhost:8080/api/v1/fs/directories`
+
+**参数描述**
+*   **请求参数**
+
+| 参数名      | 类型   | 是否必须 | 描述                                       |
+|-------------|--------|----------|--------------------------------------------|
+| parent_path | string | 是       | 父目录的绝对路径，例如 `/` 或 `/home`      |
+| name        | string | 是       | 新目录的名称，例如 `home` 或 `user`        |
+
+**请求示例**
+```json
+{
+  "parent_path": "/",
+  "name": "home"
+}
+```
+
+**响应示例**
+*   成功 (201 Created):
+    ```json
+    {
+      "status": "success",
+      "message": "Directory '/home' created successfully.",
+      "data": {
+        "inode_number": 1
+      }
+    }
+    ```
+*   失败 (404 Not Found):
+    ```json
+    {
+      "status": "error",
+      "message": "Parent path '/' not found."
+    }
+    ```
+*   失败 (400 Bad Request):
+    ```json
+    {
+      "status": "error",
+      "message": "Directory 'home' already exists in '/'."
+    }
+    ```
+
+#### 4.3 获取文件/目录信息
+根据绝对路径获取一个文件或目录的元数据信息（即其Inode信息）。
+
+**接口地址**
+`GET http://localhost:8080/api/v1/fs/stat?path=<absolute_path>`
+
+**参数描述**
+*   **Query参数**
+
+| 参数名 | 类型   | 描述                         |
+|--------|--------|------------------------------|
+| path   | string | 要查询的文件或目录的绝对路径 |
+
+*   **响应参数**
+| 参数名             | 类型            | 描述                                     |
+|--------------------|-----------------|------------------------------------------|
+| inode_number       | integer         | Inode编号                                |
+| mode               | string          | 类型 ("FILE" 或 "DIRECTORY")             |
+| size               | integer(uint32) | 大小（字节）                             |
+| block_count        | integer(uint32) | 占用的数据块数量                         |
+| last_modified_time | integer(timestamp) | 最后修改时间的时间戳                     |
+| direct_blocks      | array(integer)  | 12个直接数据块的编号                     |
+
+**请求示例**
+(URL: `http://localhost:8080/api/v1/fs/stat?path=/home`)
+
+**响应示例**
+*   成功：
+    ```json
+    {
+      "status": "success",
+      "data": {
+        "inode_number": 1,
+        "mode": "DIRECTORY",
+        "size": 64,
+        "block_count": 1,
+        "last_modified_time": 1678886400,
+        "direct_blocks": [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      }
+    }
+    ```
+*   失败 (404 Not Found):
+    ```json
+    {
+      "status": "error",
+      "message": "Path '/home/nonexistent' not found."
+    }
+    ```
+
+---
