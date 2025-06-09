@@ -45,6 +45,13 @@ void initialize_system_state() {
     fs_manager->create_file("/etc/config.conf", "# System Configuration\nreadonly=true", 644);
     fs_manager->create_file("/var/log/system.log", "System boot sequence started.\n", 600);
 
+    // 1.1. 创建.pubt可执行文件（类似Windows的exe）
+    fs_manager->create_file("/bin/calculator.pubt", "10MB", 755); // 计算器程序，需要10MB内存
+    fs_manager->create_file("/bin/notepad.pubt", "5MB", 755);     // 记事本程序，需要5MB内存
+    fs_manager->create_file("/bin/browser.pubt", "50MB", 755);    // 浏览器程序，需要50MB内存
+    fs_manager->create_file("/bin/game.pubt", "100MB", 755);      // 游戏程序，需要100MB内存
+    fs_manager->create_file("/home/myapp.pubt", "24MB", 755);     // 用户自定义应用，需要24MB内存
+
     // 2. 创建多个初始进程
     auto p1 = process_manager->create_process(512 * 1024); // 512KB
     if (p1) std::cout << "Created initial process 'idle_process' with PID: " << *p1 << std::endl;
@@ -54,7 +61,6 @@ void initialize_system_state() {
 
     auto p3 = process_manager->create_process(4 * 1024 * 1024); // 4MB
     if (p3) std::cout << "Created initial process 'shell' with PID: " << *p3 << std::endl;
-
 
     std::cout << "Default system state initialized." << std::endl;
 }
