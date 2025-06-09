@@ -1,76 +1,183 @@
-#include "process/process_manager.h"
+#include "../../include/process/process_manager.h"
+#include <algorithm>
 #include <iostream>
 
 ProcessManager::ProcessManager(MemoryManager& mem_manager)
-    : memory_manager(mem_manager), next_pid(1) {}
+    : memory_manager(mem_manager), next_pid(1), current_running_process(nullptr) {}
 
-PCB* ProcessManager::create_process(uint64_t size) {
-    // 1. 请求内存
-    auto mem_addr = memory_manager.allocate(size);
-
-    // 2. 处理内存不足的情况
-    if (!mem_addr.has_value()) {
-        std::cerr << "Error: Not enough memory to create process of size " << size << std::endl;
-        return nullptr;
+std::optional<ProcessID> ProcessManager::create_process(uint64_t size) {
+    if (size == 0) {
+        return std::nullopt;
     }
 
-    // 3. 创建 PCB
-    pid_t new_pid = next_pid++;
-    auto pcb = std::make_unique<PCB>(new_pid);
-    pcb->state = ProcessState::READY;
-    pcb->memory_info.push_back({mem_addr.value(), size});
-    
-    // 4. 加入就绪队列和进程表
-    ready_queue.push_back(pcb.get());
-    PCB* pcb_ptr = pcb.get();
-    process_table[new_pid] = std::move(pcb);
+    auto block_opt = memory_manager.allocate(size);
+    if (!block_opt) {
+        return std::nullopt; // Not enough memory
+    }
 
-    std::cout << "Process " << new_pid << " created. Size: " << size << std::endl;
-    return pcb_ptr;
+    auto pcb = std::make_shared<PCB>();
+    pcb->pid = next_pid++;
+    pcb->state = ProcessState::READY;
+    pcb->memory_info.push_back(block_opt.value());
+
+    all_processes[pcb->pid] = pcb;
+    ready_queue.push(pcb);
+
+    return pcb->pid;
 }
 
-bool ProcessManager::terminate_process(pid_t pid) {
-    auto it = process_table.find(pid);
-    if (it == process_table.end()) {
-        return false; // 进程不存在
+bool ProcessManager::terminate_process(ProcessID pid) {
+    auto it = all_processes.find(pid);
+    if (it == all_processes.end()) {
+        return false;
     }
 
-    // 释放内存
-    for (const auto& block : it->second->memory_info) {
+    auto pcb = it->second;
+
+    // Free all memory blocks associated with the process
+    for (const auto& block : pcb->memory_info) {
         memory_manager.free(block.base_address, block.size);
     }
 
-    // 从就绪队列中移除
-    ready_queue.remove(it->second.get());
+    // Remove from all_processes map
+    all_processes.erase(it);
 
-    // 从进程表中移除
-    process_table.erase(it);
+    // If it was the running process, set current_running_process to nullptr
+    if (current_running_process && current_running_process->pid == pid) {
+        current_running_process = nullptr;
+    }
+    
+    // Remove from ready queue
+    std::queue<std::shared_ptr<PCB>> new_ready_queue;
+    while (!ready_queue.empty()) {
+        auto p = ready_queue.front();
+        ready_queue.pop();
+        if (p->pid != pid) {
+            new_ready_queue.push(p);
+        }
+    }
+    ready_queue = new_ready_queue;
 
-    std::cout << "Process " << pid << " terminated." << std::endl;
+    // Remove from blocked queue
+    std::list<std::shared_ptr<PCB>> new_blocked_list;
+    for(const auto& p : blocked_processes) {
+        if (p->pid != pid) {
+            new_blocked_list.push_back(p);
+        }
+    }
+    blocked_processes = new_blocked_list;
+
     return true;
 }
 
-PCB* ProcessManager::schedule() {
-    if (ready_queue.empty()) {
-        return nullptr; // 没有就绪进程
+std::shared_ptr<PCB> ProcessManager::schedule() {
+    // If there's a running process, move it to the back of the ready queue.
+    if (current_running_process) {
+        current_running_process->state = ProcessState::READY;
+        ready_queue.push(current_running_process);
+        current_running_process = nullptr;
     }
-    // 最简单的FIFO调度
-    PCB* next_process = ready_queue.front();
-    ready_queue.pop_front();
+
+    // If there are ready processes, pick the next one.
+    if (!ready_queue.empty()) {
+        current_running_process = ready_queue.front();
+        ready_queue.pop();
+        current_running_process->state = ProcessState::RUNNING;
+    }
     
-    // 模拟执行，重新放回队尾 (类似Round-Robin)
-    next_process->state = ProcessState::RUNNING;
-    // ... 模拟执行后 ...
-    // next_process->state = ProcessState::READY;
-    // ready_queue.push_back(next_process);
-
-    return next_process;
+    return current_running_process;
 }
 
-const std::map<pid_t, std::unique_ptr<PCB>>& ProcessManager::get_all_processes() const {
-    return process_table;
+bool ProcessManager::block_process(ProcessID pid) {
+    // Find in running process
+    if (current_running_process && current_running_process->pid == pid) {
+        auto pcb = current_running_process;
+        pcb->state = ProcessState::BLOCKED;
+        blocked_processes.push_back(pcb);
+        current_running_process = nullptr;
+        // After blocking the current process, immediately schedule the next one
+        schedule();
+        return true;
+    }
+
+    // Find in ready queue
+    std::queue<std::shared_ptr<PCB>> new_ready_queue;
+    bool found = false;
+    std::shared_ptr<PCB> pcb_to_block = nullptr;
+    while(!ready_queue.empty()){
+        auto p = ready_queue.front();
+        ready_queue.pop();
+        if(p->pid == pid){
+            found = true;
+            pcb_to_block = p;
+        } else {
+            new_ready_queue.push(p);
+        }
+    }
+    ready_queue = new_ready_queue;
+
+    if (found) {
+        pcb_to_block->state = ProcessState::BLOCKED;
+        blocked_processes.push_back(pcb_to_block);
+        return true;
+    }
+
+    return false; // Process not found in ready or running state
 }
 
-const std::list<PCB*>& ProcessManager::get_ready_queue() const {
-    return ready_queue;
+bool ProcessManager::wakeup_process(ProcessID pid) {
+    auto it = std::find_if(blocked_processes.begin(), blocked_processes.end(), 
+        [pid](const std::shared_ptr<PCB>& pcb){
+            return pcb->pid == pid;
+        });
+
+    if (it != blocked_processes.end()) {
+        auto pcb = *it;
+        pcb->state = ProcessState::READY;
+        ready_queue.push(pcb);
+        blocked_processes.erase(it);
+        return true;
+    }
+
+    return false; // Process not found in blocked queue
+}
+
+// --- Methods for UI/API ---
+
+std::shared_ptr<PCB> ProcessManager::get_running_process() const {
+    return current_running_process;
+}
+
+std::vector<std::shared_ptr<PCB>> ProcessManager::get_ready_processes() const {
+    std::vector<std::shared_ptr<PCB>> ready_vec;
+    std::queue<std::shared_ptr<PCB>> temp_q = ready_queue;
+    while(!temp_q.empty()){
+        ready_vec.push_back(temp_q.front());
+        temp_q.pop();
+    }
+    return ready_vec;
+}
+
+std::vector<std::shared_ptr<PCB>> ProcessManager::get_blocked_processes() const {
+    std::vector<std::shared_ptr<PCB>> blocked_vec;
+    for(const auto& pcb : blocked_processes){
+        blocked_vec.push_back(pcb);
+    }
+    return blocked_vec;
+}
+
+std::shared_ptr<PCB> ProcessManager::get_process(ProcessID pid) const {
+    auto it = all_processes.find(pid);
+    if (it != all_processes.end()) {
+        return it->second;
+    }
+    return nullptr;
+}
+
+std::vector<std::shared_ptr<PCB>> ProcessManager::get_all_processes() const {
+    std::vector<std::shared_ptr<PCB>> processes;
+    for (const auto& pair : all_processes) {
+        processes.push_back(pair.second);
+    }
+    return processes;
 } 

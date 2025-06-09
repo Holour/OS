@@ -70,16 +70,16 @@ void test_scheduler(ProcessManager& pm) {
     
     assert(pm.get_ready_queue().size() >= 2);
     
-    PCB* scheduled_p1 = pm.schedule();
+    PCB* scheduled_p1 = pm.tick_schedule();
     assert(scheduled_p1 == p1); // Simple FIFO scheduling
     assert(scheduled_p1->state == ProcessState::RUNNING);
     assert(pm.get_ready_queue().size() >= 1);
     
-    PCB* scheduled_p2 = pm.schedule();
+    PCB* scheduled_p2 = pm.tick_schedule();
     assert(scheduled_p2 == p2);
     assert(scheduled_p2->state == ProcessState::RUNNING);
 
-    PCB* should_be_null = pm.schedule();
+    PCB* should_be_null = pm.tick_schedule();
     if (pm.get_ready_queue().empty()) {
        assert(should_be_null == nullptr);
     }

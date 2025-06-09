@@ -5,25 +5,22 @@
 #include <vector>
 #include <cstdint>
 
-// 进程状态
-enum class ProcessState {
-    NEW,
-    READY,
-    RUNNING,
-    BLOCKED,
-    TERMINATED
-};
-
 // 内存块信息
 struct MemoryBlock {
     uint64_t base_address;
     uint64_t size;
+
+    // Default constructor
+    MemoryBlock() : base_address(0), size(0) {}
+
+    // Member-wise constructor
+    MemoryBlock(uint64_t base, uint64_t sz) : base_address(base), size(sz) {}
 };
 
 // 进程控制块
 class PCB {
 public:
-    pid_t pid;
+    ProcessID pid;
     ProcessState state;
     uint64_t program_counter;
     // 可以添加寄存器等上下文信息
@@ -31,7 +28,7 @@ public:
 
     std::vector<MemoryBlock> memory_info; // 进程占用的内存块
 
-    PCB(pid_t id);
+    PCB() : pid(-1), state(ProcessState::NEW) {}
 };
 
 #endif //PCB_H 

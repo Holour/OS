@@ -43,7 +43,7 @@ void test_create_and_find_directory() {
     fsm.format();
 
     // 1. Create a directory '/home' at the root
-    auto home_inode_num_opt = fsm.create_directory("/home", "/");
+    auto home_inode_num_opt = fsm.create_directory("/home");
     assert(home_inode_num_opt.has_value());
     uint32_t home_inode_num = home_inode_num_opt.value();
 
@@ -61,7 +61,7 @@ void test_create_and_find_directory() {
     std::cout << "OK: Directory '/home' created and its content is correct." << std::endl;
 
     // 3. Create a nested directory '/home/user'. This implicitly tests find_inode_for_path.
-    auto user_inode_num_opt = fsm.create_directory("/home/user", "/home");
+    auto user_inode_num_opt = fsm.create_directory("/home/user");
     assert(user_inode_num_opt.has_value());
     uint32_t user_inode_num = user_inode_num_opt.value();
     
@@ -76,11 +76,40 @@ void test_create_and_find_directory() {
     std::cout << "OK: Nested directory '/home/user' created successfully." << std::endl;
 }
 
+void test_directory_creation() {
+    std::cout << "--- Testing Directory Creation ---" << std::endl;
+    MemoryManager mm;
+    mm.initialize();
+    FileSystemManager fsm(mm);
+
+    // Test creating a directory at the root
+    auto dir1_inode_num = fsm.create_directory("/home");
+    assert(dir1_inode_num.has_value());
+    std::cout << "  > Created /home successfully." << std::endl;
+
+    auto found_dir1_inode = fsm.find_inode_for_path("/home");
+    assert(found_dir1_inode.has_value() && found_dir1_inode.value() == dir1_inode_num.value());
+
+    // Test creating a nested directory
+    auto dir2_inode_num = fsm.create_directory("/home/user");
+    assert(dir2_inode_num.has_value());
+    std::cout << "  > Created /home/user successfully." << std::endl;
+
+    auto found_dir2_inode = fsm.find_inode_for_path("/home/user");
+    assert(found_dir2_inode.has_value() && found_dir2_inode.value() == dir2_inode_num.value());
+    
+    // Test creating an existing directory (should fail)
+    auto dir3_inode_num = fsm.create_directory("/home");
+    assert(!dir3_inode_num.has_value());
+    std::cout << "  > Attempt to create existing directory failed as expected." << std::endl;
+}
+
 int main() {
     std::cout << "===== Starting FileSystemManager Tests =====" << std::endl;
 
     test_format();
     test_create_and_find_directory();
+    test_directory_creation();
 
     std::cout << "===== All FileSystemManager Tests Passed! =====" << std::endl;
     return 0;

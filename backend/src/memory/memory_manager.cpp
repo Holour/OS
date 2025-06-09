@@ -1,7 +1,9 @@
 #include "memory/memory_manager.h"
 #include <iostream>
 
-MemoryManager::MemoryManager() : memory_pool(nullptr), used_memory(0) {}
+MemoryManager::MemoryManager() : memory_pool(nullptr), used_memory(0) {
+    initialize();
+}
 
 MemoryManager::~MemoryManager() {
     delete[] memory_pool;
@@ -24,56 +26,60 @@ char* MemoryManager::get_memory_pool_ptr() {
     return memory_pool;
 }
 
-std::optional<uint64_t> MemoryManager::allocate(uint64_t size) {
+std::optional<MemoryBlock> MemoryManager::allocate(uint64_t size) {
     if (size == 0) {
         return std::nullopt;
     }
 
-    // 首次适应算法
     for (auto it = free_list.begin(); it != free_list.end(); ++it) {
         if (it->size >= size) {
-            uint64_t alloc_addr = it->base_address;
+            uint64_t base_address = it->base_address;
             it->base_address += size;
             it->size -= size;
-            
             if (it->size == 0) {
                 free_list.erase(it);
             }
-
             used_memory += size;
-            return alloc_addr;
+            return MemoryBlock{base_address, size};
         }
     }
 
-    // 内存不足
-    return std::nullopt;
+    return std::nullopt; // No suitable block found
 }
 
-void MemoryManager::free(uint64_t base_address, uint64_t size) {
-    if (size == 0) return;
-
-    // 释放内存并尝试合并空闲块
-    auto it = free_list.begin();
-    while (it != free_list.end() && it->base_address < base_address) {
-        ++it;
-    }
-
-    // 插入新的空闲块
-    auto new_it = free_list.insert(it, {base_address, size});
-
-    // 尝试与后一个块合并
-    if (std::next(new_it) != free_list.end() && new_it->base_address + new_it->size == std::next(new_it)->base_address) {
-        new_it->size += std::next(new_it)->size;
-        free_list.erase(std::next(new_it));
-    }
-    
-    // 尝试与前一个块合并
-    if (new_it != free_list.begin() && std::prev(new_it)->base_address + std::prev(new_it)->size == new_it->base_address) {
-        std::prev(new_it)->size += new_it->size;
-        free_list.erase(new_it);
+bool MemoryManager::free(uint64_t base_address, uint64_t size) {
+    if (size == 0) {
+        return false;
     }
     
     used_memory -= size;
+
+    // Add the new free block
+    free_list.push_back({base_address, size});
+    
+    // Sort to bring adjacent blocks together
+    free_list.sort([](const FreeBlock& a, const FreeBlock& b) {
+        return a.base_address < b.base_address;
+    });
+
+    // Merge adjacent blocks
+    auto it = free_list.begin();
+    while (it != free_list.end()) {
+        auto next_it = std::next(it);
+        if (next_it == free_list.end()) {
+            break; 
+        }
+
+        if (it->base_address + it->size == next_it->base_address) {
+            it->size += next_it->size;
+            free_list.erase(next_it);
+            // After merging, stay at the current iterator 'it' to check if it can merge with the new 'next_it'
+        } else {
+            ++it; // Move to the next block if no merge occurred
+        }
+    }
+
+    return true;
 }
 
 const std::list<FreeBlock>& MemoryManager::get_free_blocks() const {
@@ -86,4 +92,26 @@ uint64_t MemoryManager::get_total_memory() const {
 
 uint64_t MemoryManager::get_used_memory() const {
     return used_memory;
+}
+
+uint64_t MemoryManager::get_free_memory() const {
+    uint64_t total_free = 0;
+    for (const auto& block : free_list) {
+        total_free += block.size;
+    }
+    return total_free;
+}
+
+std::string MemoryManager::read_memory(uint64_t address, size_t size) const {
+    if (address + size > MEMORY_SIZE || memory_pool == nullptr) {
+        throw std::runtime_error("Invalid memory access");
+    }
+    return std::string(memory_pool + address, size);
+}
+
+void MemoryManager::write_memory(uint64_t address, const std::string& data) {
+    if (address + data.size() > MEMORY_SIZE || memory_pool == nullptr) {
+        throw std::runtime_error("Invalid memory access");
+    }
+    std::copy(data.begin(), data.end(), memory_pool + address);
 } 

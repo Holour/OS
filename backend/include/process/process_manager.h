@@ -1,5 +1,4 @@
-#ifndef PROCESS_MANAGER_H
-#define PROCESS_MANAGER_H
+#pragma once
 
 #include "pcb.h"
 #include "../memory/memory_manager.h"
@@ -7,29 +6,38 @@
 #include <list>
 #include <map>
 #include <memory>
+#include <deque>
+#include <optional>
+#include <queue>
+#include "../common.h"
 
 class ProcessManager {
 public:
-    ProcessManager(MemoryManager& mem_manager);
+    explicit ProcessManager(MemoryManager& mem_manager);
 
-    // 创建一个新进程
-    PCB* create_process(uint64_t size);
+    std::optional<ProcessID> create_process(uint64_t size);
+    bool terminate_process(ProcessID pid);
+    
+    // Scheduling
+    std::shared_ptr<PCB> schedule();
+    
+    // For interrupts
+    bool block_process(ProcessID pid);
+    bool wakeup_process(ProcessID pid);
 
-    // 终止一个进程
-    bool terminate_process(pid_t pid);
-
-    // 调度 (简单示例)
-    PCB* schedule();
-
-    // for UI
-    const std::map<pid_t, std::unique_ptr<PCB>>& get_all_processes() const;
-    const std::list<PCB*>& get_ready_queue() const;
-
+    // For UI/API
+    std::shared_ptr<PCB> get_running_process() const;
+    std::vector<std::shared_ptr<PCB>> get_ready_processes() const;
+    std::vector<std::shared_ptr<PCB>> get_blocked_processes() const;
+    std::shared_ptr<PCB> get_process(ProcessID pid) const;
+    std::vector<std::shared_ptr<PCB>> get_all_processes() const;
+    
 private:
     MemoryManager& memory_manager;
-    std::map<pid_t, std::unique_ptr<PCB>> process_table;
-    std::list<PCB*> ready_queue;
-    pid_t next_pid;
-};
-
-#endif //PROCESS_MANAGER_H 
+    ProcessID next_pid;
+    
+    std::map<ProcessID, std::shared_ptr<PCB>> all_processes;
+    std::queue<std::shared_ptr<PCB>> ready_queue;
+    std::list<std::shared_ptr<PCB>> blocked_processes;
+    std::shared_ptr<PCB> current_running_process;
+}; 

@@ -1,56 +1,56 @@
+# 设置CMake最低版本要求和项目名称
 cmake_minimum_required(VERSION 3.10)
-project(os_simulator CXX)
+project(os_simulator)
 
+# 设置C++标准为C++17
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-set(EXECUTABLE_NAME os_simulator)
-
-include_directories(include)
-
-# --- Source File Definitions ---
-
-# Define the main entry point for the application
-set(MAIN_SOURCES src/core/main.cpp)
-
-# Collect library source files that will be used by the main executable and tests
-set(MEMORY_SOURCES
-    src/memory/memory_manager.cpp
-)
-set(PROCESS_SOURCES
-    ${MEMORY_SOURCES}
-    src/process/process_manager.cpp
-    src/process/pcb.cpp
-)
-set(FS_SOURCES
-    ${MEMORY_SOURCES}
-    src/fs/fs_manager.cpp
+# --- 包含目录 ---
+# 添加项目和第三方库的头文件目录
+include_directories(
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/libs
 )
 
-# The main executable links against all library sources
-add_executable(${EXECUTABLE_NAME} ${MAIN_SOURCES} ${PROCESS_SOURCES} ${FS_SOURCES})
+# --- OS模拟器可执行文件 ---
+# 自动搜集src目录下所有的.cpp源文件
+file(GLOB_RECURSE SIMULATOR_SOURCES 
+    "src/*.cpp" 
+    "src/*/*.cpp"
+)
 
-# --- Unit Tests ---
+# 创建模拟器可执行文件
+add_executable(os_simulator ${SIMULATOR_SOURCES})
+# 链接Threads库
+target_link_libraries(os_simulator PRIVATE ${CMAKE_THREAD_LIBS_INIT})
+# 安装可执行文件到bin目录
+install(TARGETS os_simulator DESTINATION bin)
+
+
+# --- API测试可执行文件 ---
+# 列出所有测试相关的源文件
+set(API_TEST_SOURCES
+    tests/api_tests.cpp
+    tests/process_api_test.cpp
+    tests/scheduler_api_test.cpp
+    tests/memory_api_test.cpp
+    tests/filesystem_api_test.cpp
+    tests/device_api_test.cpp
+    tests/interrupt_api_test.cpp
+    tests/clock_api_test.cpp
+)
+
+# 创建测试可执行文件
+add_executable(api_tests ${API_TEST_SOURCES})
+# 链接Threads库 (httplib需要)
+target_link_libraries(api_tests PRIVATE ${CMAKE_THREAD_LIBS_INIT})
+# 安装可执行文件到bin目录
+install(TARGETS api_tests DESTINATION bin)
+
+
+# --- CTest配置 ---
+# 启用测试
 enable_testing()
-set(CTEST_OUTPUT_ON_FAILURE TRUE)
-
-# --- Process Manager Test ---
-add_executable(process_test
-    tests/test_process_manager.cpp
-    ${PROCESS_SOURCES}
-)
-add_test(NAME ProcessManagerTest COMMAND process_test)
-
-# --- Memory Manager Test ---
-add_executable(memory_test
-    tests/test_memory_manager.cpp
-    ${MEMORY_SOURCES}
-)
-add_test(NAME MemoryManagerTest COMMAND memory_test)
-
-# --- File System Test ---
-add_executable(fs_test
-    tests/test_fs_manager.cpp
-    ${FS_SOURCES}
-)
-add_test(NAME FileSystemManagerTest COMMAND fs_test)
+# 添加一个测试，该测试运行api_tests可执行文件
+add_test(NAME FullApiIntegrationTest COMMAND api_tests)

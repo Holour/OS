@@ -1,4 +1,0 @@
-ProcessManagerTest 5 0.185392
-MemoryManagerTest 4 0.226063
-FileSystemManagerTest 3 0.312195
----
