@@ -24,6 +24,12 @@ file(GLOB_RECURSE SIMULATOR_SOURCES
 add_executable(os_simulator ${SIMULATOR_SOURCES})
 # 链接Threads库
 target_link_libraries(os_simulator PRIVATE ${CMAKE_THREAD_LIBS_INIT})
+
+# --- 为Windows平台链接网络库 ---
+if(WIN32)
+    target_link_libraries(os_simulator PRIVATE ws2_32 wsock32)
+endif()
+
 # 安装可执行文件到bin目录
 install(TARGETS os_simulator DESTINATION bin)
 
@@ -45,6 +51,12 @@ set(API_TEST_SOURCES
 add_executable(api_tests ${API_TEST_SOURCES})
 # 链接Threads库 (httplib需要)
 target_link_libraries(api_tests PRIVATE ${CMAKE_THREAD_LIBS_INIT})
+
+# --- 为Windows平台链接网络库 ---
+if(WIN32)
+    target_link_libraries(api_tests PRIVATE ws2_32 wsock32)
+endif()
+
 # 安装可执行文件到bin目录
 install(TARGETS api_tests DESTINATION bin)
 

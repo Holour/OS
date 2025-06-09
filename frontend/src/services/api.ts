@@ -58,31 +58,58 @@ export const memoryAPI = {
 
 // 文件系统 API
 export const filesystemAPI = {
+  // 获取文件系统状态
+  getStatus: () => apiClient.get('/filesystem/status'),
+
   // 列出目录内容
   listDirectory: (path: string = '/') => {
     const cleanPath = path === '/' ? '' : path;
     return apiClient.get(`/filesystem/directory/${cleanPath}`);
   },
 
-  // 创建文件
-  createFile: (path: string, content: string) =>
-    apiClient.post('/filesystem/file', { path, content }),
+  // 创建文件（支持模拟大小）
+  createFile: (path: string, simulatedSize: number = 0, permissions: number = 0o644) =>
+    apiClient.post('/filesystem/file', {
+      path,
+      simulated_size: simulatedSize,
+      permissions
+    }),
 
   // 创建目录
-  createDirectory: (path: string) =>
-    apiClient.post('/filesystem/directory', { path }),
+  createDirectory: (path: string, permissions: number = 0o755) =>
+    apiClient.post('/filesystem/directory', {
+      path,
+      permissions
+    }),
 
   // 读取文件
   readFile: (path: string) =>
     apiClient.get(`/filesystem/file/${encodeURIComponent(path)}`),
 
-  // 写入文件
-  writeFile: (path: string, content: string) =>
-    apiClient.put(`/filesystem/file/${encodeURIComponent(path)}`, { content }),
+  // 删除文件/目录（支持递归删除）
+  delete: (path: string, recursive: boolean = false) => {
+    const url = `/filesystem/${encodeURIComponent(path)}`;
+    return recursive
+      ? apiClient.delete(`${url}?recursive=true`)
+      : apiClient.delete(url);
+  },
 
-  // 删除文件/目录
-  delete: (path: string) =>
-    apiClient.delete(`/filesystem/${encodeURIComponent(path)}`),
+  // 获取文件系统配置并设置分配策略
+  setAllocationStrategy: (strategy: 'INDEXED' | 'LINKED' | 'CONTIGUOUS') =>
+    apiClient.put('/filesystem/config', { allocation_method: strategy }),
+
+  // 获取文件地址信息
+  getFileAddress: (path: string) =>
+    apiClient.get('/filesystem/file-address', { params: { path } }),
+
+  // 获取文件系统日志
+  getLogs: (startTime?: string, endTime?: string, operationType?: string) => {
+    const params: any = {};
+    if (startTime) params.start_time = startTime;
+    if (endTime) params.end_time = endTime;
+    if (operationType) params.operation_type = operationType;
+    return apiClient.get('/filesystem/logs', { params });
+  },
 };
 
 // 设备管理 API

@@ -29,6 +29,11 @@ const openFileManager = () => {
   showStartMenu.value = false;
 };
 
+const openFileSystemConfig = () => {
+  windowsStore.openWindow('filesystem-config', '文件系统配置', 'FileSystemConfig');
+  showStartMenu.value = false;
+};
+
 const openMemoryManager = () => {
   windowsStore.openWindow('memory-manager', '内存管理器', 'MemoryManager');
   showStartMenu.value = false;
@@ -149,6 +154,10 @@ onUnmounted(() => {
         <div class="menu-item" @click="openFileManager">
           <span class="menu-icon">📁</span>
           <span>文件管理器</span>
+        </div>
+        <div class="menu-item" @click="openFileSystemConfig">
+          <span class="menu-icon">🗄️</span>
+          <span>文件系统配置</span>
         </div>
       </div>
 

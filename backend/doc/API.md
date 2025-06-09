@@ -1,4 +1,4 @@
-## **操作系统模拟器 API 文档 V1.0**
+## **操作系统模拟器 API 文档 V2.0**
 
 **基础URL**: `http://localhost:8080/api/v1`
 
@@ -257,7 +257,7 @@
 ### **4. 文件系统 (File System)**
 
 #### 4.1 获取文件系统状态
-获取当前文件系统的使用情况。
+获取当前文件系统的使用情况和配置。
 
 **接口地址**
 `GET http://localhost:8080/api/v1/filesystem/status`
@@ -266,13 +266,14 @@
 *   **请求参数**: 无
 *   **响应参数**
 
-| 参数名        | 类型    | 描述           |
-|---------------|---------|----------------|
-| total_space   | integer | 总空间（字节） |
-| used_space    | integer | 已用空间（字节）|
-| free_space    | integer | 空闲空间（字节）|
-| total_files   | integer | 文件总数       |
-| total_dirs    | integer | 目录总数       |
+| 参数名              | 类型            | 描述                                     |
+|---------------------|-----------------|------------------------------------------|
+| total_space         | integer(uint64) | 总空间 (64 GB)                           |
+| used_space          | integer(uint64) | 已用空间（字节）                         |
+| free_space          | integer(uint64) | 空闲空间（字节）                         |
+| total_files         | integer         | 文件总数                                 |
+| total_dirs          | integer         | 目录总数                                 |
+| allocation_method   | string          | 当前外存分配策略 ("CONTIGUOUS", "LINKED", "INDEXED") |
 
 **请求示例**
 无
@@ -283,16 +284,48 @@
     {
       "status": "success",
       "data": {
-        "total_space": 1073741824,
+        "total_space": 68719476736,
         "used_space": 536870912,
-        "free_space": 536870912,
-        "total_files": 100,
-        "total_dirs": 20
+        "free_space": 68182605824,
+        "total_files": 10,
+        "total_dirs": 7,
+        "allocation_method": "INDEXED"
       }
     }
     ```
 
-#### 4.2 创建目录
+#### 4.2 更改外存分配策略
+更改文件系统当前使用的外存分配策略。
+
+**接口地址**
+`PUT http://localhost:8080/api/v1/filesystem/config`
+
+**参数描述**
+*   **请求参数**
+
+| 参数名              | 类型    | 是否必须 | 描述                                     |
+|---------------------|---------|----------|------------------------------------------|
+| allocation_method   | string  | 是       | 新的分配策略 ("CONTIGUOUS", "LINKED", "INDEXED") |
+
+*   **响应参数**: 无
+
+**请求示例**
+```json
+{
+  "allocation_method": "CONTIGUOUS"
+}
+```
+
+**响应示例**
+*   成功 (200 OK):
+    ```json
+    {
+      "status": "success",
+      "message": "Allocation strategy updated to CONTIGUOUS"
+    }
+    ```
+
+#### 4.3 创建目录
 在指定路径创建新目录。
 
 **接口地址**
@@ -333,8 +366,8 @@
     }
     ```
 
-#### 4.3 创建文件
-在指定路径创建新文件。
+#### 4.4 创建文件
+在指定路径创建新文件，并指定其模拟大小。
 
 **接口地址**
 `POST http://localhost:8080/api/v1/filesystem/file`
@@ -342,25 +375,25 @@
 **参数描述**
 *   **请求参数**
 
-| 参数名        | 类型    | 是否必须 | 描述           |
-|---------------|---------|----------|----------------|
-| path          | string  | 是       | 文件路径       |
-| content       | string  | 否       | 文件内容       |
-| permissions   | integer | 否       | 文件权限（八进制） |
+| 参数名           | 类型            | 是否必须 | 描述                         |
+|------------------|-----------------|----------|------------------------------|
+| path             | string          | 是       | 文件路径                     |
+| simulated_size   | integer(uint64) | 是       | 文件的模拟大小（字节）       |
+| permissions      | integer         | 否       | 文件权限（八进制, 默认 644） |
 
 *   **响应参数**
 
-| 参数名        | 类型    | 描述           |
-|---------------|---------|----------------|
-| path          | string  | 创建的文件路径 |
-| size          | integer | 文件大小（字节）|
-| permissions   | integer | 文件权限       |
+| 参数名           | 类型            | 描述               |
+|------------------|-----------------|--------------------|
+| path             | string          | 创建的文件路径     |
+| simulated_size   | integer(uint64) | 文件的模拟大小     |
+| permissions      | integer         | 文件权限           |
 
 **请求示例**
 ```json
 {
-  "path": "/documents/projects/readme.txt",
-  "content": "# Project Documentation",
+  "path": "/home/user/new_large_file.dat",
+  "simulated_size": 1048576,
   "permissions": 644
 }
 ```
@@ -371,15 +404,15 @@
     {
       "status": "success",
       "data": {
-        "path": "/documents/projects/readme.txt",
-        "size": 21,
+        "path": "/home/user/new_large_file.dat",
+        "simulated_size": 1048576,
         "permissions": 644
       }
     }
     ```
 
-#### 4.4 读取文件
-读取指定文件的内容。
+#### 4.5 读取文件
+读取指定文件的元数据和模拟内容。
 
 **接口地址**
 `GET http://localhost:8080/api/v1/filesystem/file/{path}`
@@ -388,20 +421,22 @@
 *   **URL参数**
 | 参数名 | 类型    | 描述           |
 |--------|---------|----------------|
-| path   | string  | 文件路径       |
+| path   | string  | 文件路径 (URL编码) |
 
 *   **请求参数**: 无
 *   **响应参数**
 
-| 参数名        | 类型    | 描述           |
-|---------------|---------|----------------|
-| content       | string  | 文件内容       |
-| size          | integer | 文件大小（字节）|
-| permissions   | integer | 文件权限       |
-| last_modified | string  | 最后修改时间   |
+| 参数名           | 类型            | 描述                         |
+|------------------|-----------------|------------------------------|
+| path             | string          | 文件路径                     |
+| content          | string          | 文件模拟内容（占位符）       |
+| simulated_size   | integer(uint64) | 文件模拟大小（字节）         |
+| permissions      | integer         | 文件权限                     |
+| created_at       | string          | 创建时间 (ISO 8601)          |
+| modified_at      | string          | 最后修改时间 (ISO 8601)      |
 
 **请求示例**
-无
+`GET http://localhost:8080/api/v1/filesystem/file/home/user/report.docx`
 
 **响应示例**
 *   成功 (200 OK):
@@ -409,62 +444,60 @@
     {
       "status": "success",
       "data": {
-        "content": "# Project Documentation",
-        "size": 21,
+        "path": "/home/user/report.docx",
+        "content": "Simulated file content for: /home/user/report.docx\nSimulated Size: 2097152 bytes\n",
+        "simulated_size": 2097152,
         "permissions": 644,
-        "last_modified": "2024-03-15T10:30:00Z"
+        "created_at": "2024-05-22T10:30:00Z",
+        "modified_at": "2024-05-22T10:30:00Z"
       }
     }
     ```
 
-#### 4.5 写入文件
-向指定文件写入内容。
+#### 4.6 查询文件首地址
+查询指定文件在不同分配策略下的逻辑首地址。
 
 **接口地址**
-`PUT http://localhost:8080/api/v1/filesystem/file/{path}`
+`GET http://localhost:8080/api/v1/filesystem/file-address`
 
 **参数描述**
-*   **URL参数**
+*   **URL查询参数**
 | 参数名 | 类型    | 描述           |
 |--------|---------|----------------|
 | path   | string  | 文件路径       |
 
-*   **请求参数**
-
-| 参数名        | 类型    | 是否必须 | 描述           |
-|---------------|---------|----------|----------------|
-| content       | string  | 是       | 文件内容       |
-| append        | boolean | 否       | 是否追加内容   |
-
 *   **响应参数**
 
-| 参数名        | 类型    | 描述           |
-|---------------|---------|----------------|
-| size          | integer | 文件大小（字节）|
-| last_modified | string  | 最后修改时间   |
+| 参数名                 | 类型    | 描述                               |
+|------------------------|---------|------------------------------------|
+| path                   | string  | 查询的文件路径                     |
+| addresses              | object  | 不同策略下的首地址                 |
+| » contiguous           | integer | 连续分配下的起始块号 (如果适用)    |
+| » linked               | integer | 链接分配下的起始块号 (如果适用)    |
+| » indexed              | integer | 索引分配下的索引块号 (如果适用)    |
 
 **请求示例**
-```json
-{
-  "content": "Updated content",
-  "append": false
-}
-```
+`GET http://localhost:8080/api/v1/filesystem/file-address?path=/etc/config.json`
 
 **响应示例**
 *   成功 (200 OK):
     ```json
     {
-      "status": "success",
-      "data": {
-        "size": 15,
-        "last_modified": "2024-03-15T10:35:00Z"
-      }
+        "status": "success",
+        "data": {
+            "path": "/etc/config.json",
+            "addresses": {
+                "contiguous": null,
+                "linked": null,
+                "indexed": 15
+            }
+        }
     }
     ```
+    *注：对于一个已创建的文件，只有一个地址字段会有值，具体取决于文件创建时所采用的分配策略。*
 
-#### 4.6 删除文件或目录
-删除指定的文件或目录。
+#### 4.7 删除文件或目录
+删除指定的文件或目录 (目录会递归删除)。
 
 **接口地址**
 `DELETE http://localhost:8080/api/v1/filesystem/{path}`
@@ -490,7 +523,7 @@
     }
     ```
 
-#### 4.7 列出目录内容
+#### 4.8 列出目录内容
 获取指定目录下的所有文件和子目录。
 
 **接口地址**
@@ -498,43 +531,48 @@
 
 **参数描述**
 *   **URL参数**
-| 参数名 | 类型    | 描述           |
-|--------|---------|----------------|
-| path   | string  | 目录路径       |
+| 参数名 | 类型    | 描述               |
+|--------|---------|--------------------|
+| path   | string  | 目录路径 (URL编码) |
 
 *   **请求参数**: 无
-*   **响应参数**
+*   **响应参数**: 一个包含文件和目录对象的数组。
 
-| 参数名        | 类型    | 描述           |
-|---------------|---------|----------------|
-| files         | array   | 文件列表       |
-| directories   | array   | 子目录列表     |
+| 参数名        | 类型            | 描述                         |
+|---------------|-----------------|------------------------------|
+| name          | string          | 文件或目录名                 |
+| type          | string          | "file" 或 "directory"        |
+| size          | integer(uint64) | 对于文件，为模拟大小（字节） |
+| permissions   | integer         | 权限                         |
+| created_at    | string          | 创建时间 (ISO 8601)          |
+| modified_at   | string          | 最后修改时间 (ISO 8601)      |
 
 **请求示例**
-无
+`GET http://localhost:8080/api/v1/filesystem/directory/home/user`
 
 **响应示例**
-*   成功 (200 OK):
+*   成功：
     ```json
     {
       "status": "success",
-      "data": {
-        "files": [
-          {
-            "name": "readme.txt",
-            "size": 21,
-            "permissions": 644,
-            "last_modified": "2024-03-15T10:30:00Z"
-          }
-        ],
-        "directories": [
-          {
-            "name": "src",
-            "permissions": 755,
-            "last_modified": "2024-03-15T10:30:00Z"
-          }
-        ]
-      }
+      "data": [
+        {
+          "name": "documents",
+          "type": "directory",
+          "size": 0,
+          "permissions": 755,
+          "created_at": "2024-05-22T10:29:00Z",
+          "modified_at": "2024-05-22T10:29:00Z"
+        },
+        {
+          "name": "new_large_file.dat",
+          "type": "file",
+          "size": 1048576,
+          "permissions": 644,
+          "created_at": "2024-05-22T10:35:00Z",
+          "modified_at": "2024-05-22T10:35:00Z"
+        }
+      ]
     }
     ```
 

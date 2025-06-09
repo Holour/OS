@@ -36,7 +36,9 @@ public:
 
     // 内存读写操作（用于文件系统等）
     std::string read_memory(uint64_t address, size_t size) const;
+    void read_memory(uint64_t address, void* buffer, size_t size) const;
     void write_memory(uint64_t address, const std::string& data);
+    void write_memory(uint64_t address, const void* data, size_t size);
 
 private:
     char* memory_pool; // 模拟内存池

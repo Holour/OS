@@ -12,6 +12,7 @@ interface FileItem {
   type: 'file' | 'directory';
   size?: number;
   path: string;
+  simulated_size?: number;
 }
 
 const desktopFiles = ref<FileItem[]>([]);
@@ -30,6 +31,7 @@ const componentMap: Record<string, any> = {
   ProcessManager: defineAsyncComponent(() => import('./apps/ProcessManager.vue')),
   Terminal: defineAsyncComponent(() => import('./apps/Terminal.vue')),
   FileManager: defineAsyncComponent(() => import('./apps/FileManager.vue')),
+  FileSystemConfig: defineAsyncComponent(() => import('./apps/FileSystemConfig.vue')),
   MemoryManager: defineAsyncComponent(() => import('./apps/MemoryManager.vue')),
   DeviceManager: defineAsyncComponent(() => import('./apps/DeviceManager.vue')),
   SystemControl: defineAsyncComponent(() => import('./apps/SystemControl.vue')),
@@ -41,20 +43,16 @@ const loadDesktopFiles = async () => {
     const response = await filesystemAPI.listDirectory('/');
     if (response.data.status === 'success' && response.data.data) {
       const data = response.data.data;
-      const allFiles = [
-        ...(data.directories || []).map((dir: any) => ({
-          name: dir.name,
-          type: 'directory' as const,
-          size: undefined,
-          path: `/${dir.name}`,
-        })),
-        ...(data.files || []).map((file: any) => ({
-          name: file.name,
-          type: 'file' as const,
-          size: file.size,
-          path: `/${file.name}`,
-        }))
-      ];
+      // 根据新的API结构更新数据映射
+      const allFiles = data.map((item: any) => ({
+        name: item.name,
+        type: item.type,
+        size: item.size,
+        simulated_size: item.simulated_size,
+        path: item.type === 'directory' ? `/${item.name}` : `/${item.name}`,
+        permissions: item.permissions,
+        last_modified: item.last_modified
+      }));
       desktopFiles.value = allFiles;
     }
   } catch (err) {
@@ -86,7 +84,7 @@ const handleOpenFile = async (file: FileItem) => {
     } else {
       // 处理普通文件
       const processName = file.name.replace(/\.[^/.]+$/, '') || 'unnamed'; // 去掉扩展名
-      const processSize = Math.max(1024, file.size || 1024); // 至少1KB
+      const processSize = Math.max(1024, file.simulated_size || file.size || 1024); // 至少1KB，优先使用模拟大小
 
       const processResult = await processAPI.createProcess(processName, processSize);
       console.log(`文件 "${file.name}" 已创建进程 "${processName}"，进程ID: ${processResult.data.pid}`);
@@ -99,16 +97,11 @@ const handleOpenFile = async (file: FileItem) => {
 // 处理.pubt文件执行
 const handlePubtFile = async (file: FileItem) => {
   try {
-    // 读取.pubt文件内容获取内存大小
+    // 读取.pubt文件信息获取模拟大小
     const response = await filesystemAPI.readFile(file.path);
     if (response.data.status === 'success') {
-      const content = response.data.data.content.trim();
-
-      // 解析内存大小，支持如"10MB", "24MB", "5MB"等格式
-      const memorySize = parseMemorySize(content);
-      if (memorySize === null) {
-        throw new Error(`无效的内存大小格式: ${content}`);
-      }
+      // 使用文件的模拟大小作为内存大小，如果没有则使用默认值
+      const memorySize = response.data.data.simulated_size || file.simulated_size || 1024; // 默认1KB
 
       // 创建进程，使用文件名（去掉.pubt扩展名）作为进程名
       const processName = file.name.replace(/\.pubt$/, '') || 'unnamed';
@@ -116,29 +109,14 @@ const handlePubtFile = async (file: FileItem) => {
       const processResult = await processAPI.createProcess(processName, memorySize);
       console.log(`程序 "${processName}" 已启动，进程ID: ${processResult.data.pid}，分配内存: ${formatBytes(memorySize)}`);
     } else {
-      throw new Error('无法读取.pubt文件内容');
+      throw new Error('无法读取.pubt文件信息');
     }
   } catch (err: any) {
     throw err; // 重新抛出错误，让上层处理
   }
 };
 
-// 解析内存大小字符串，返回字节数
-const parseMemorySize = (sizeStr: string): number | null => {
-  const match = sizeStr.match(/^(\d+(?:\.\d+)?)\s*(MB|KB|GB|B)$/i);
-  if (!match) return null;
 
-  const value = parseFloat(match[1]);
-  const unit = match[2].toUpperCase();
-
-  switch (unit) {
-    case 'B': return value;
-    case 'KB': return value * 1024;
-    case 'MB': return value * 1024 * 1024;
-    case 'GB': return value * 1024 * 1024 * 1024;
-    default: return null;
-  }
-};
 
 // 格式化字节数为可读格式
 const formatBytes = (bytes: number): string => {
@@ -271,7 +249,26 @@ const createNewFolder = () => {
 const createNewFile = () => {
   const fileName = prompt('请输入文件名称:');
   if (fileName && fileName.trim()) {
-    filesystemAPI.createFile(fileName.trim(), '')
+    const sizeStr = prompt('请输入模拟大小(例如: 1024, 1KB, 1MB):', '1024');
+    let simulatedSize = 1024; // 默认1KB
+
+    if (sizeStr && sizeStr.trim()) {
+      // 简单解析大小字符串
+      const size = parseFloat(sizeStr);
+      if (!isNaN(size)) {
+        if (sizeStr.toLowerCase().includes('kb')) {
+          simulatedSize = size * 1024;
+        } else if (sizeStr.toLowerCase().includes('mb')) {
+          simulatedSize = size * 1024 * 1024;
+        } else if (sizeStr.toLowerCase().includes('gb')) {
+          simulatedSize = size * 1024 * 1024 * 1024;
+        } else {
+          simulatedSize = size;
+        }
+      }
+    }
+
+    filesystemAPI.createFile(fileName.trim(), simulatedSize)
       .then(() => {
         loadDesktopFiles();
         console.log('文件创建成功!');

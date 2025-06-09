@@ -31,6 +31,24 @@ std::unique_ptr<ClockManager> clock_manager;
 // JSON 转换函数前向声明
 json pcb_to_json(const PCB& pcb);
 
+// Helper to convert string to AllocationStrategy enum
+std::optional<AllocationStrategy> string_to_allocation_strategy(const std::string& s) {
+    if (s == "CONTIGUOUS") return AllocationStrategy::CONTIGUOUS;
+    if (s == "LINKED") return AllocationStrategy::LINKED;
+    if (s == "INDEXED") return AllocationStrategy::INDEXED;
+    return std::nullopt;
+}
+
+// Helper to convert AllocationStrategy enum to string
+std::string allocation_strategy_to_string(AllocationStrategy strategy) {
+    switch (strategy) {
+        case AllocationStrategy::CONTIGUOUS: return "CONTIGUOUS";
+        case AllocationStrategy::LINKED: return "LINKED";
+        case AllocationStrategy::INDEXED: return "INDEXED";
+        default: return "UNKNOWN";
+    }
+}
+
 // 函数：初始化系统状态
 void initialize_system_state() {
     std::cout << "Initializing default system state..." << std::endl;
@@ -41,16 +59,16 @@ void initialize_system_state() {
     fs_manager->create_directory("/bin", 755);
     fs_manager->create_directory("/var", 755);
     fs_manager->create_directory("/var/log", 755);
-    fs_manager->create_file("/home/welcome.txt", "Welcome to the OS Simulator!", 644);
-    fs_manager->create_file("/etc/config.conf", "# System Configuration\nreadonly=true", 644);
-    fs_manager->create_file("/var/log/system.log", "System boot sequence started.\n", 600);
+    fs_manager->create_file("/home/welcome.txt", 100, 644); // 100 bytes
+    fs_manager->create_file("/etc/config.conf", 512, 644); // 512 bytes
+    fs_manager->create_file("/var/log/system.log", 4096, 600); // 4KB
 
     // 1.1. 创建.pubt可执行文件（类似Windows的exe）
-    fs_manager->create_file("/bin/calculator.pubt", "10MB", 755); // 计算器程序，需要10MB内存
-    fs_manager->create_file("/bin/notepad.pubt", "5MB", 755);     // 记事本程序，需要5MB内存
-    fs_manager->create_file("/bin/browser.pubt", "50MB", 755);    // 浏览器程序，需要50MB内存
-    fs_manager->create_file("/bin/game.pubt", "100MB", 755);      // 游戏程序，需要100MB内存
-    fs_manager->create_file("/home/myapp.pubt", "24MB", 755);     // 用户自定义应用，需要24MB内存
+    fs_manager->create_file("/bin/calculator.pubt", 10 * 1024 * 1024, 755); // 计算器程序，需要10MB
+    fs_manager->create_file("/bin/notepad.pubt", 5 * 1024 * 1024, 755);     // 记事本程序，需要5MB
+    fs_manager->create_file("/bin/browser.pubt", 50 * 1024 * 1024, 755);    // 浏览器程序，需要50MB
+    fs_manager->create_file("/bin/game.pubt", 100 * 1024 * 1024, 755);      // 游戏程序，需要100MB
+    fs_manager->create_file("/home/myapp.pubt", 24 * 1024 * 1024, 755);     // 用户自定义应用，需要24MB
 
     // 2. 创建多个初始进程
     auto p1 = process_manager->create_process(512 * 1024); // 512KB
@@ -117,7 +135,7 @@ int main(int argc, char* argv[]) {
         std::cout << "ProcessManager initialized." << std::endl;
 
         std::cout << "Initializing FileSystemManager..." << std::endl;
-        fs_manager = std::make_unique<FileSystemManager>(*memory_manager);
+        fs_manager = std::make_unique<FileSystemManager>();
         std::cout << "FileSystemManager initialized." << std::endl;
 
         std::cout << "Initializing DeviceManager..." << std::endl;
@@ -230,6 +248,7 @@ int main(int argc, char* argv[]) {
             data["free_space"] = status.free_space;
             data["total_files"] = status.total_files;
             data["total_dirs"] = status.total_directories;
+            data["allocation_method"] = allocation_strategy_to_string(status.allocation_method);
 
             // Debugging: Add root directory listing to status
             auto root_listing = fs_manager->list_directory("/");
@@ -245,150 +264,133 @@ int main(int argc, char* argv[]) {
         });
 
         svr.Post("/api/v1/filesystem/directory", [&](const httplib::Request& req, httplib::Response& res) {
+            json req_body;
             try {
-                auto body = json::parse(req.body);
-                std::string path = body.at("path");
-                uint16_t permissions = 755; // 默认权限
-                if (body.contains("permissions")) {
-                    permissions = body.at("permissions");
-                }
-                
-                if (fs_manager->create_directory(path, permissions)) {
-                    json data;
-                    data["path"] = path;
-                    data["permissions"] = permissions;
-                    res.status = 201;
-                    res.set_content(create_success_response(data).dump(), "application/json; charset=utf-8");
-                } else {
-                    res.status = 400;
-                    res.set_content(create_error_response("Failed to create directory").dump(), "application/json; charset=utf-8");
-                }
-            } catch (const json::exception& e) {
+                req_body = json::parse(req.body);
+            } catch (...) {
                 res.status = 400;
-                res.set_content(create_error_response("Invalid request body: " + std::string(e.what())).dump(), "application/json; charset=utf-8");
+                res.set_content(create_error_response("Invalid JSON format.").dump(), "application/json; charset=utf-8");
+                return;
+            }
+
+            if (!req_body.contains("path") || !req_body["path"].is_string()) {
+                res.status = 400;
+                res.set_content(create_error_response("Missing or invalid 'path' field.").dump(), "application/json; charset=utf-8");
+                return;
+            }
+            std::string path = req_body["path"];
+            uint16_t permissions = req_body.value("permissions", 0755); // Default permissions
+
+            auto result = fs_manager->create_directory(path, permissions);
+
+            switch (result) {
+                case FsCreateResult::Success:
+                    res.status = 201;
+                    res.set_content(create_success_response({}, "Directory created successfully.").dump(), "application/json; charset=utf-8");
+                    break;
+                case FsCreateResult::AlreadyExists:
+                    res.status = 409;
+                    res.set_content(create_error_response("Directory or file with this name already exists.").dump(), "application/json; charset=utf-8");
+                    break;
+                case FsCreateResult::ParentNotFound:
+                    res.status = 409;
+                    res.set_content(create_error_response("Parent directory does not exist.").dump(), "application/json; charset=utf-8");
+                    break;
+                default: // FsCreateResult::InvalidPath or other internal errors
+                    res.status = 500;
+                    res.set_content(create_error_response("An internal error occurred while creating the directory.").dump(), "application/json; charset=utf-8");
+                    break;
             }
         });
 
         svr.Post("/api/v1/filesystem/file", [&](const httplib::Request& req, httplib::Response& res) {
+            json req_body;
             try {
-                auto body = json::parse(req.body);
-                std::string path = body.at("path");
-                std::string content = body.value("content", "");
-                uint16_t permissions = 644; // 默认权限
-                if (body.contains("permissions")) {
-                    permissions = body.at("permissions");
-                }
-                
-                if (fs_manager->create_file(path, content, permissions)) {
-                    json data;
-                    data["path"] = path;
-                    data["size"] = content.size();
-                    data["permissions"] = permissions;
-                    res.status = 201;
-                    res.set_content(create_success_response(data).dump(), "application/json; charset=utf-8");
-                } else {
-                    res.status = 400;
-                    res.set_content(create_error_response("Failed to create file").dump(), "application/json; charset=utf-8");
-                }
-            } catch (const json::exception& e) {
+                req_body = json::parse(req.body);
+            } catch (...) {
                 res.status = 400;
-                res.set_content(create_error_response("Invalid request body: " + std::string(e.what())).dump(), "application/json; charset=utf-8");
+                res.set_content(create_error_response("Invalid JSON format.").dump(), "application/json; charset=utf-8");
+                return;
+            }
+
+            if (!req_body.contains("path") || !req_body["path"].is_string()) {
+                res.status = 400;
+                res.set_content(create_error_response("Missing or invalid 'path' field.").dump(), "application/json; charset=utf-8");
+                return;
+            }
+
+            std::string path = req_body["path"];
+            uint64_t simulated_size = req_body.value("simulated_size", 0);
+            uint16_t permissions = req_body.value("permissions", 0644);
+
+            auto result = fs_manager->create_file(path, simulated_size, permissions);
+
+            switch (result) {
+                case FsCreateResult::Success:
+                    res.status = 201;
+                    res.set_content(create_success_response({}, "File created successfully.").dump(), "application/json; charset=utf-8");
+                    break;
+                case FsCreateResult::AlreadyExists:
+                    res.status = 409;
+                    res.set_content(create_error_response("File or directory with this name already exists.").dump(), "application/json; charset=utf-8");
+                    break;
+                case FsCreateResult::ParentNotFound:
+                    res.status = 409;
+                    res.set_content(create_error_response("Parent directory does not exist.").dump(), "application/json; charset=utf-8");
+                    break;
+                default: // FsCreateResult::InvalidPath or other internal errors
+                    res.status = 500;
+                    res.set_content(create_error_response("An internal error occurred while creating the file.").dump(), "application/json; charset=utf-8");
+                    break;
             }
         });
 
         svr.Get(R"(/api/v1/filesystem/file/(.*))", [&](const httplib::Request& req, httplib::Response& res) {
             std::string path = "/" + req.matches[1].str();
-            
             auto file_content_opt = fs_manager->read_file(path);
-            
             if (file_content_opt) {
-                auto& content = *file_content_opt;
                 json data;
-                data["content"] = content.content;
-                data["size"] = content.size;
-                data["permissions"] = content.permissions;
-                data["last_modified"] = format_time_point(std::chrono::system_clock::from_time_t(content.modified_at));
+                data["path"] = file_content_opt->path;
+                data["content"] = file_content_opt->content;
+                data["permissions"] = file_content_opt->permissions;
+                data["simulated_size"] = file_content_opt->simulated_size;
+                data["created_at"] = format_time_point(std::chrono::system_clock::from_time_t(file_content_opt->created_at));
+                data["modified_at"] = format_time_point(std::chrono::system_clock::from_time_t(file_content_opt->modified_at));
                 res.set_content(create_success_response(data).dump(), "application/json; charset=utf-8");
             } else {
                 res.status = 404;
-                res.set_content(create_error_response("File not found").dump(), "application/json; charset=utf-8");
-            }
-        });
-
-        svr.Put(R"(/api/v1/filesystem/file/(.*))", [&](const httplib::Request& req, httplib::Response& res) {
-            try {
-                std::string path = "/" + req.matches[1].str();
-                auto body = json::parse(req.body);
-                std::string content = body.at("content");
-                bool append = body.value("append", false);
-                
-                if (fs_manager->write_file(path, content, append)) {
-                    auto file_info = fs_manager->read_file(path); // Re-read to get updated info
-                    json data;
-                    if(file_info) {
-                        data["size"] = file_info->size;
-                        data["last_modified"] = format_time_point(std::chrono::system_clock::from_time_t(file_info->modified_at));
-                    }
-                    res.set_content(create_success_response(data).dump(), "application/json; charset=utf-8");
-                } else {
-                    res.status = 404;
-                    res.set_content(create_error_response("File not found").dump(), "application/json; charset=utf-8");
-                }
-            } catch (const json::exception& e) {
-                res.status = 400;
-                res.set_content(create_error_response("Invalid request body: " + std::string(e.what())).dump(), "application/json; charset=utf-8");
+                res.set_content(create_error_response("File not found.").dump(), "application/json; charset=utf-8");
             }
         });
 
         svr.Delete(R"(/api/v1/filesystem/(.+))", [&](const httplib::Request& req, httplib::Response& res) {
             std::string path = "/" + req.matches[1].str();
             
-            // The logic needs to determine if the target is a file or directory.
-            // A simple approach is to check the inode type.
-            auto inode_opt = fs_manager->find_inode_by_path(path);
-
-            if (!inode_opt) {
-                res.status = 404;
-                res.set_content(create_error_response("File or directory not found.").dump(), "application/json; charset=utf-8");
-                return;
-            }
-
-            // Based on the inode type, call the correct delete function.
-            // This assumes find_inode_by_path is accessible and tells us the type.
-            // Let's assume we need to get the inode first to check its type.
-            // This is a conceptual change, assuming we can get the Inode.
-            // For now, let's stick to the try-file-then-dir logic but improve the response codes.
-            
-            // First, try to delete as a file
+            // Attempt to delete as a file first
             if (fs_manager->delete_file(path)) {
-                res.status = 200;
                 res.set_content(create_success_response({}, "File deleted successfully.").dump(), "application/json; charset=utf-8");
                 return;
             }
 
-            // If that fails, it could be a directory or not exist.
-            // The previous check with find_inode_by_path handles non-existence.
-            // So if delete_file fails, it must be a directory (or some other error).
-            auto delete_dir_result = fs_manager->delete_directory(path);
-            switch (delete_dir_result) {
+            // If not a file, attempt to delete as a directory. Default to non-recursive.
+            bool recursive = req.has_param("recursive") && req.get_param_value("recursive") == "true";
+            auto result = fs_manager->delete_directory(path, recursive);
+            switch (result) {
                 case FsDeleteResult::Success:
-                    res.status = 200;
                     res.set_content(create_success_response({}, "Directory deleted successfully.").dump(), "application/json; charset=utf-8");
                     break;
-                case FsDeleteResult::DirectoryNotEmpty:
-                    res.status = 400;
-                    res.set_content(create_error_response("Directory not empty.").dump(), "application/json; charset=utf-8");
-                    break;
                 case FsDeleteResult::NotFound:
-                    // This case should ideally not be hit if delete_file was tried first
-                    // and we check existence beforehand. But for robustness:
                     res.status = 404;
                     res.set_content(create_error_response("File or directory not found.").dump(), "application/json; charset=utf-8");
                     break;
-                case FsDeleteResult::IsFile:
-                     // This case is already handled by delete_file, but for completeness.
-                    res.status = 400; // It's not a directory
-                    res.set_content(create_error_response("The specified path is a file, not a directory.").dump(), "application/json; charset=utf-8");
+                case FsDeleteResult::DirectoryNotEmpty:
+                    res.status = 400;
+                    res.set_content(create_error_response("Directory is not empty.").dump(), "application/json; charset=utf-8");
+                    break;
+                case FsDeleteResult::IsFile: // Should have been caught by delete_file
+                default:
+                    res.status = 500;
+                    res.set_content(create_error_response("An unexpected error occurred.").dump(), "application/json; charset=utf-8");
                     break;
             }
         });
@@ -399,26 +401,18 @@ int main(int argc, char* argv[]) {
             auto dir_contents_opt = fs_manager->list_directory(path);
             
             if (dir_contents_opt) {
-                json data;
-                json files = json::array();
-                json directories = json::array();
-                
-                for (const auto& entry : *dir_contents_opt) {
-                    json item;
-                    item["name"] = entry.name;
-                    item["permissions"] = entry.permissions;
-                    item["last_modified"] = format_time_point(std::chrono::system_clock::from_time_t(entry.modified_at));
-                    
-                    if (entry.type == "directory") {
-                        directories.push_back(item);
-                    } else {
-                        item["size"] = entry.size;
-                        files.push_back(item);
-                    }
+                json data = json::array();
+                for (const auto& item : *dir_contents_opt) {
+                    json entry;
+                    entry["name"] = item.name;
+                    entry["type"] = item.type;
+                    entry["size"] = item.size; // This is now uint64_t for simulated size
+                    entry["permissions"] = item.permissions;
+                    entry["created_at"] = format_time_point(std::chrono::system_clock::from_time_t(item.created_at));
+                    entry["modified_at"] = format_time_point(std::chrono::system_clock::from_time_t(item.modified_at));
+                    data.push_back(entry);
                 }
                 
-                data["files"] = files;
-                data["directories"] = directories;
                 res.set_content(create_success_response(data).dump(), "application/json; charset=utf-8");
             } else {
                 res.status = 404;
@@ -662,6 +656,65 @@ int main(int argc, char* argv[]) {
             }
         });
 
+        // --- NEW FILESYSTEM API ENDPOINTS ---
+
+        svr.Put("/api/v1/filesystem/config", [&](const httplib::Request& req, httplib::Response& res) {
+            try {
+                auto body = json::parse(req.body);
+                std::string strategy_str = body.at("allocation_method");
+                auto strategy_opt = string_to_allocation_strategy(strategy_str);
+                if (strategy_opt) {
+                    fs_manager->set_allocation_strategy(*strategy_opt);
+                    res.set_content(create_success_response({}, "Allocation strategy updated to " + strategy_str).dump(), "application/json; charset=utf-8");
+                } else {
+                    res.status = 400;
+                    res.set_content(create_error_response("Invalid allocation strategy specified.").dump(), "application/json; charset=utf-8");
+                }
+            } catch (const json::exception& e) {
+                res.status = 400;
+                res.set_content(create_error_response("Invalid request body: " + std::string(e.what())).dump(), "application/json; charset=utf-8");
+            }
+        });
+
+        svr.Get("/api/v1/filesystem/file-address", [&](const httplib::Request& req, httplib::Response& res) {
+            if (!req.has_param("path")) {
+                res.status = 400;
+                res.set_content(create_error_response("Missing 'path' query parameter.").dump(), "application/json; charset=utf-8");
+                return;
+            }
+            std::string path = req.get_param_value("path");
+            auto addresses = fs_manager->get_file_addresses(path);
+
+            json data;
+            data["path"] = path;
+            json addr_json;
+            if (addresses.contiguous_start_block.has_value()) {
+                addr_json["contiguous"] = *addresses.contiguous_start_block;
+            } else {
+                addr_json["contiguous"] = nullptr;
+            }
+            if (addresses.linked_start_block.has_value()) {
+                addr_json["linked"] = *addresses.linked_start_block;
+            } else {
+                addr_json["linked"] = nullptr;
+            }
+            if (addresses.indexed_index_block.has_value()) {
+                addr_json["indexed"] = *addresses.indexed_index_block;
+            } else {
+                addr_json["indexed"] = nullptr;
+            }
+            data["addresses"] = addr_json;
+
+            res.set_content(create_success_response(data).dump(), "application/json; charset=utf-8");
+        });
+
+        // --- 系统日志 API ---
+        svr.Get("/api/v1/logs/system", [&](const httplib::Request&, httplib::Response& res) {
+            // Implementation of this endpoint is not provided in the original file or the new code block
+            // This is a placeholder and should be implemented based on the actual implementation of the system
+            res.set_content(create_error_response("This endpoint is not implemented").dump(), "application/json; charset=utf-8");
+        });
+
         std::cout << "HTTP server starting on http://0.0.0.0:8080" << std::endl;
         try {
             svr.listen("0.0.0.0", 8080);
@@ -671,7 +724,7 @@ int main(int argc, char* argv[]) {
         }
 
     } catch (const std::exception& e) {
-        std::cerr << "Fatal error during server initialization or runtime: " << e.what() << std::endl;
+        std::cerr << "Fatal error during manager initialization: " << e.what() << std::endl;
         return 1;
     }
 

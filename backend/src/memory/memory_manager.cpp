@@ -1,5 +1,6 @@
 #include "memory/memory_manager.h"
 #include <iostream>
+#include <cstring>
 
 MemoryManager::MemoryManager() : memory_pool(nullptr), used_memory(0) {
     initialize();
@@ -114,4 +115,18 @@ void MemoryManager::write_memory(uint64_t address, const std::string& data) {
         throw std::runtime_error("Invalid memory access");
     }
     std::copy(data.begin(), data.end(), memory_pool + address);
+}
+
+void MemoryManager::read_memory(uint64_t address, void* buffer, size_t size) const {
+    if (address + size > MEMORY_SIZE || memory_pool == nullptr) {
+        throw std::runtime_error("Invalid memory access in read");
+    }
+    std::memcpy(buffer, memory_pool + address, size);
+}
+
+void MemoryManager::write_memory(uint64_t address, const void* data, size_t size) {
+    if (address + size > MEMORY_SIZE || memory_pool == nullptr) {
+        throw std::runtime_error("Invalid memory access in write");
+    }
+    std::memcpy(memory_pool + address, data, size);
 } 
