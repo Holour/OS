@@ -1,13 +1,13 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
-    <CustomBuild Include="C:\Users\Holour\Desktop\OS\backend\build\CMakeFiles\baefafce24e4d763985033394a54e782\INSTALL_force.rule">
+    <CustomBuild Include="C:\Users\Holour\Desktop\test\OS\backend\build\CMakeFiles\5e71f9f6ebcee1083e04075607acd746\INSTALL_force.rule">
       <Filter>CMake Rules</Filter>
     </CustomBuild>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="CMake Rules">
-      <UniqueIdentifier>{F44AE5DB-5A25-3F33-BEAA-DE1F839C98A3}</UniqueIdentifier>
+      <UniqueIdentifier>{9534DA5E-875F-35DA-B786-20E151E46A2D}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
 </Project>

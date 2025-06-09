@@ -23,6 +23,9 @@ const showFileContextMenu = ref(false);
 const fileContextMenuPosition = ref({ x: 0, y: 0 });
 const contextMenuFile = ref<FileItem | null>(null);
 
+// 图标位置管理
+const iconPositions = ref<Record<string, { x: number; y: number }>>({});
+
 const componentMap: Record<string, any> = {
   ProcessManager: defineAsyncComponent(() => import('./apps/ProcessManager.vue')),
   Terminal: defineAsyncComponent(() => import('./apps/Terminal.vue')),
@@ -146,15 +149,64 @@ const formatBytes = (bytes: number): string => {
 };
 
 // 计算图标位置（网格布局）
-const getIconPosition = (index: number) => {
+const getIconPosition = (file: FileItem, index: number) => {
+  // 如果有保存的位置，使用保存的位置
+  if (iconPositions.value[file.name]) {
+    return iconPositions.value[file.name];
+  }
+
+  // 否则使用默认网格位置
   const iconsPerColumn = Math.floor((window.innerHeight - 120) / 100); // 考虑任务栏高度
   const column = Math.floor(index / iconsPerColumn);
   const row = index % iconsPerColumn;
 
-  return {
+  const position = {
     x: 20 + column * 100,
     y: 20 + row * 100
   };
+
+  // 保存默认位置
+  iconPositions.value[file.name] = position;
+  return position;
+};
+
+// 更新图标位置
+const updateIconPosition = (file: FileItem, position: { x: number; y: number }) => {
+  // 边界检查
+  const maxX = window.innerWidth - 100;
+  const maxY = window.innerHeight - 150; // 考虑任务栏高度
+
+  const clampedPosition = {
+    x: Math.max(0, Math.min(position.x, maxX)),
+    y: Math.max(0, Math.min(position.y, maxY))
+  };
+
+  iconPositions.value[file.name] = clampedPosition;
+
+  // 可以在这里添加保存到localStorage的逻辑
+  saveIconPositions();
+};
+
+// 保存图标位置到localStorage
+const saveIconPositions = () => {
+  try {
+    localStorage.setItem('desktop-icon-positions', JSON.stringify(iconPositions.value));
+  } catch (error) {
+    console.warn('Failed to save icon positions:', error);
+  }
+};
+
+// 从localStorage加载图标位置
+const loadIconPositions = () => {
+  try {
+    const saved = localStorage.getItem('desktop-icon-positions');
+    if (saved) {
+      iconPositions.value = JSON.parse(saved);
+    }
+  } catch (error) {
+    console.warn('Failed to load icon positions:', error);
+    iconPositions.value = {};
+  }
 };
 
 // 图标选中处理
@@ -290,6 +342,7 @@ const showProperties = () => {
 
 onMounted(() => {
   loadDesktopFiles();
+  loadIconPositions();
   // 点击其他地方隐藏右键菜单
   document.addEventListener('click', hideAllContextMenus);
 });
@@ -306,12 +359,13 @@ onUnmounted(() => {
       v-for="(file, index) in desktopFiles"
       :key="file.name"
       :file="file"
-      :position="getIconPosition(index)"
+      :position="getIconPosition(file, index)"
       :isSelected="selectedIcon?.name === file.name"
       @openFolder="handleOpenFolder"
-      @openFile="handleOpenFile"
-      @selectIcon="handleSelectIcon"
-      @contextMenu="handleFileContextMenu"
+              @openFile="handleOpenFile"
+        @selectIcon="handleSelectIcon"
+        @contextMenu="handleFileContextMenu"
+        @updatePosition="updateIconPosition"
     />
 
     <!-- 桌面右键菜单 -->
@@ -386,65 +440,81 @@ onUnmounted(() => {
 
 .context-menu {
   position: fixed;
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(0, 0, 0, 0.15);
-  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 12px;
   box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.15),
-    0 2px 8px rgba(0, 0, 0, 0.1);
+    0 12px 40px rgba(0, 0, 0, 0.15),
+    0 6px 16px rgba(0, 0, 0, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
   z-index: 10001;
-  min-width: 160px;
-  font-size: 13px;
-  color: #333;
-  padding: 6px 0;
+  min-width: 180px;
+  font-size: 14px;
+  color: #323130;
+  padding: 8px 0;
   overflow: hidden;
 }
 
 .file-context-menu {
-  min-width: 140px;
+  min-width: 160px;
 }
 
 .menu-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 16px;
+  gap: 12px;
+  padding: 12px 20px;
   cursor: pointer;
-  transition: all 0.2s ease;
-  color: #333;
+  transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  color: #323130;
   font-weight: 500;
   position: relative;
 }
 
+.menu-item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: linear-gradient(to bottom, #0078d4, #106ebe);
+  transform: scaleY(0);
+  transition: transform 0.2s ease;
+  border-radius: 0 2px 2px 0;
+}
+
+.menu-item:hover::before {
+  transform: scaleY(1);
+}
+
 .menu-item:hover {
-  background-color: rgba(0, 120, 215, 0.1);
+  background: rgba(0, 120, 215, 0.08);
   color: #0078d4;
+  padding-left: 24px;
+  transform: translateX(4px);
 }
 
 .menu-item:active {
-  background-color: rgba(0, 120, 215, 0.2);
+  background: rgba(0, 120, 215, 0.12);
+  transform: translateX(2px);
 }
 
 .menu-icon {
-  width: 16px;
+  width: 18px;
   text-align: center;
-  font-size: 14px;
+  font-size: 16px;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.1));
 }
 
 .menu-divider {
   height: 1px;
   background: linear-gradient(90deg,
     transparent 0%,
-    rgba(0, 0, 0, 0.1) 20%,
-    rgba(0, 0, 0, 0.1) 80%,
+    rgba(0, 0, 0, 0.08) 20%,
+    rgba(0, 0, 0, 0.08) 80%,
     transparent 100%);
-  margin: 6px 0;
-}
-
-.menu-divider {
-  height: 1px;
-  background-color: #eee;
-  margin: 4px 0;
+  margin: 8px 0;
 }
 </style>

@@ -1,7 +1,7 @@
-C:\Users\Holour\Desktop\OS\backend\src\clock\clock_manager.cpp;C:\Users\Holour\Desktop\OS\backend\build\os_simulator.dir\Debug\clock_manager.obj
-C:\Users\Holour\Desktop\OS\backend\src\core\main.cpp;C:\Users\Holour\Desktop\OS\backend\build\os_simulator.dir\Debug\main.obj
-C:\Users\Holour\Desktop\OS\backend\src\device\device_manager.cpp;C:\Users\Holour\Desktop\OS\backend\build\os_simulator.dir\Debug\device_manager.obj
-C:\Users\Holour\Desktop\OS\backend\src\fs\fs_manager.cpp;C:\Users\Holour\Desktop\OS\backend\build\os_simulator.dir\Debug\fs_manager.obj
-C:\Users\Holour\Desktop\OS\backend\src\interrupt\interrupt_manager.cpp;C:\Users\Holour\Desktop\OS\backend\build\os_simulator.dir\Debug\interrupt_manager.obj
-C:\Users\Holour\Desktop\OS\backend\src\memory\memory_manager.cpp;C:\Users\Holour\Desktop\OS\backend\build\os_simulator.dir\Debug\memory_manager.obj
-C:\Users\Holour\Desktop\OS\backend\src\process\process_manager.cpp;C:\Users\Holour\Desktop\OS\backend\build\os_simulator.dir\Debug\process_manager.obj
+C:\Users\Holour\Desktop\test\OS\backend\src\clock\clock_manager.cpp;C:\Users\Holour\Desktop\test\OS\backend\build\os_simulator.dir\Debug\clock_manager.obj
+C:\Users\Holour\Desktop\test\OS\backend\src\core\main.cpp;C:\Users\Holour\Desktop\test\OS\backend\build\os_simulator.dir\Debug\main.obj
+C:\Users\Holour\Desktop\test\OS\backend\src\device\device_manager.cpp;C:\Users\Holour\Desktop\test\OS\backend\build\os_simulator.dir\Debug\device_manager.obj
+C:\Users\Holour\Desktop\test\OS\backend\src\fs\fs_manager.cpp;C:\Users\Holour\Desktop\test\OS\backend\build\os_simulator.dir\Debug\fs_manager.obj
+C:\Users\Holour\Desktop\test\OS\backend\src\interrupt\interrupt_manager.cpp;C:\Users\Holour\Desktop\test\OS\backend\build\os_simulator.dir\Debug\interrupt_manager.obj
+C:\Users\Holour\Desktop\test\OS\backend\src\memory\memory_manager.cpp;C:\Users\Holour\Desktop\test\OS\backend\build\os_simulator.dir\Debug\memory_manager.obj
+C:\Users\Holour\Desktop\test\OS\backend\src\process\process_manager.cpp;C:\Users\Holour\Desktop\test\OS\backend\build\os_simulator.dir\Debug\process_manager.obj

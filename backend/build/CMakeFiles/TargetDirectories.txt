@@ -1,6 +1,6 @@
-C:/Users/Holour/Desktop/OS/backend/build/CMakeFiles/os_simulator.dir
-C:/Users/Holour/Desktop/OS/backend/build/CMakeFiles/api_tests.dir
-C:/Users/Holour/Desktop/OS/backend/build/CMakeFiles/RUN_TESTS.dir
-C:/Users/Holour/Desktop/OS/backend/build/CMakeFiles/INSTALL.dir
-C:/Users/Holour/Desktop/OS/backend/build/CMakeFiles/ALL_BUILD.dir
-C:/Users/Holour/Desktop/OS/backend/build/CMakeFiles/ZERO_CHECK.dir
+C:/Users/Holour/Desktop/test/OS/backend/build/CMakeFiles/os_simulator.dir
+C:/Users/Holour/Desktop/test/OS/backend/build/CMakeFiles/api_tests.dir
+C:/Users/Holour/Desktop/test/OS/backend/build/CMakeFiles/RUN_TESTS.dir
+C:/Users/Holour/Desktop/test/OS/backend/build/CMakeFiles/INSTALL.dir
+C:/Users/Holour/Desktop/test/OS/backend/build/CMakeFiles/ALL_BUILD.dir
+C:/Users/Holour/Desktop/test/OS/backend/build/CMakeFiles/ZERO_CHECK.dir

@@ -1,9 +1,9 @@
 # CMake generation dependency list for this directory.
-C:/Users/Holour/Desktop/OS/backend/CMakeLists.txt
-C:/Users/Holour/Desktop/OS/backend/build/CMakeFiles/4.0.2/CMakeCCompiler.cmake
-C:/Users/Holour/Desktop/OS/backend/build/CMakeFiles/4.0.2/CMakeCXXCompiler.cmake
-C:/Users/Holour/Desktop/OS/backend/build/CMakeFiles/4.0.2/CMakeRCCompiler.cmake
-C:/Users/Holour/Desktop/OS/backend/build/CMakeFiles/4.0.2/CMakeSystem.cmake
+C:/Users/Holour/Desktop/test/OS/backend/CMakeLists.txt
+C:/Users/Holour/Desktop/test/OS/backend/build/CMakeFiles/4.0.2/CMakeCCompiler.cmake
+C:/Users/Holour/Desktop/test/OS/backend/build/CMakeFiles/4.0.2/CMakeCXXCompiler.cmake
+C:/Users/Holour/Desktop/test/OS/backend/build/CMakeFiles/4.0.2/CMakeRCCompiler.cmake
+C:/Users/Holour/Desktop/test/OS/backend/build/CMakeFiles/4.0.2/CMakeSystem.cmake
 D:/CMake/share/cmake-4.0/Modules/CMakeCCompiler.cmake.in
 D:/CMake/share/cmake-4.0/Modules/CMakeCCompilerABI.c
 D:/CMake/share/cmake-4.0/Modules/CMakeCInformation.cmake

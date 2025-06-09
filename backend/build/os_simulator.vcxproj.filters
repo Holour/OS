@@ -1,34 +1,34 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
-    <ClCompile Include="C:\Users\Holour\Desktop\OS\backend\src\clock\clock_manager.cpp">
+    <ClCompile Include="C:\Users\Holour\Desktop\test\OS\backend\src\clock\clock_manager.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="C:\Users\Holour\Desktop\OS\backend\src\core\main.cpp">
+    <ClCompile Include="C:\Users\Holour\Desktop\test\OS\backend\src\core\main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="C:\Users\Holour\Desktop\OS\backend\src\device\device_manager.cpp">
+    <ClCompile Include="C:\Users\Holour\Desktop\test\OS\backend\src\device\device_manager.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="C:\Users\Holour\Desktop\OS\backend\src\fs\fs_manager.cpp">
+    <ClCompile Include="C:\Users\Holour\Desktop\test\OS\backend\src\fs\fs_manager.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="C:\Users\Holour\Desktop\OS\backend\src\interrupt\interrupt_manager.cpp">
+    <ClCompile Include="C:\Users\Holour\Desktop\test\OS\backend\src\interrupt\interrupt_manager.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="C:\Users\Holour\Desktop\OS\backend\src\memory\memory_manager.cpp">
+    <ClCompile Include="C:\Users\Holour\Desktop\test\OS\backend\src\memory\memory_manager.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="C:\Users\Holour\Desktop\OS\backend\src\process\process_manager.cpp">
+    <ClCompile Include="C:\Users\Holour\Desktop\test\OS\backend\src\process\process_manager.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <CustomBuild Include="C:\Users\Holour\Desktop\OS\backend\CMakeLists.txt" />
+    <CustomBuild Include="C:\Users\Holour\Desktop\test\OS\backend\CMakeLists.txt" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Source Files">
-      <UniqueIdentifier>{E898533D-C353-38B9-8227-DE5979DB990A}</UniqueIdentifier>
+      <UniqueIdentifier>{25A77D51-23EC-3B42-BD9B-5230B8F3DB29}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
 </Project>

@@ -1,19 +1,39 @@
-/* Global Styles */
+/* Global Styles - Windows 11 Theme */
 @import './base.css';
+
+/* CSS Custom Properties */
+:root {
+  --primary-color: #0078d4;
+  --primary-hover: #106ebe;
+  --accent-color: #005a9e;
+  --bg-primary: rgba(249, 249, 249, 0.85);
+  --bg-secondary: rgba(255, 255, 255, 0.6);
+  --text-primary: #323130;
+  --text-secondary: #605e5c;
+  --border-color: rgba(255, 255, 255, 0.3);
+  --shadow-light: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --shadow-medium: 0 8px 24px rgba(0, 0, 0, 0.12);
+  --shadow-heavy: 0 16px 40px rgba(0, 0, 0, 0.2);
+  --blur-light: blur(15px);
+  --blur-heavy: blur(40px);
+  --transition-smooth: all 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  --border-radius: 8px;
+  --border-radius-large: 12px;
+}
 
 html, body {
   height: 100%;
   margin: 0;
-  overflow: hidden; /* Prevent scrollbars on the main page */
+  overflow: hidden;
+  font-family: 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
   user-select: none;
+  background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
 }
 
 #app {
@@ -21,20 +41,69 @@ body {
   height: 100%;
 }
 
-a,
-.green {
-  text-decoration: none;
-  color: hsla(160, 100%, 37%, 1);
-  transition: 0.4s;
-  padding: 3px;
+/* Global Button Styles */
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  outline: none;
+  transition: var(--transition-smooth);
 }
 
-@media (hover: hover) {
-  a:hover {
-    background-color: hsla(160, 100%, 37%, 0.2);
-  }
+button:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
 }
 
-@media (min-width: 1024px) {
-  /* Removed grid layout that was interfering with desktop app structure */
+/* Global Scrollbar Styles */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+  transition: background 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.3);
+}
+
+/* Global Selection Styles */
+::selection {
+  background: rgba(0, 120, 215, 0.3);
+  color: inherit;
+}
+
+/* Animation Classes */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.3s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+.slide-up-enter-active,
+.slide-up-leave-active {
+  transition: all 0.3s ease;
+}
+
+.slide-up-enter-from {
+  transform: translateY(20px);
+  opacity: 0;
+}
+
+.slide-up-leave-to {
+  transform: translateY(-20px);
+  opacity: 0;
 }
