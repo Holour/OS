@@ -15,37 +15,37 @@ const toggleStartMenu = () => {
 };
 
 const openProcessManager = () => {
-  windowsStore.openWindow('proc-manager', '进程管理器', 'ProcessManager');
-  showStartMenu.value = false;
-};
-
-const openTerminal = () => {
-  windowsStore.openWindow('terminal', '终端', 'Terminal');
-  showStartMenu.value = false;
-};
-
-const openFileManager = () => {
-  windowsStore.openWindow('file-manager', '文件管理器', 'FileManager');
-  showStartMenu.value = false;
-};
-
-const openFileSystemConfig = () => {
-  windowsStore.openWindow('filesystem-config', '文件系统配置', 'FileSystemConfig');
+  windowsStore.openWindow('process-manager', '进程管理器', 'ProcessManager', {}, { center: true });
   showStartMenu.value = false;
 };
 
 const openMemoryManager = () => {
-  windowsStore.openWindow('memory-manager', '内存管理器', 'MemoryManager');
+  windowsStore.openWindow('memory-manager', '内存管理器', 'MemoryManager', {}, { center: true });
+  showStartMenu.value = false;
+};
+
+const openFileManager = () => {
+  windowsStore.openWindow('file-manager', '文件管理器', 'FileManager', {}, { center: true });
+  showStartMenu.value = false;
+};
+
+const openFileSystemConfig = () => {
+  windowsStore.openWindow('filesystem-config', '文件系统配置', 'FileSystemConfig', {}, { center: true });
+  showStartMenu.value = false;
+};
+
+const openTerminal = () => {
+  windowsStore.openWindow('terminal', '终端', 'Terminal', {}, { center: true });
   showStartMenu.value = false;
 };
 
 const openSystemControl = () => {
-  windowsStore.openWindow('system-control', '系统控制', 'SystemControl');
+  windowsStore.openWindow('system-control', '系统控制', 'SystemControl', {}, { center: true });
   showStartMenu.value = false;
 };
 
 const openDeviceManager = () => {
-  windowsStore.openWindow('device-manager', '设备管理器', 'DeviceManager');
+  windowsStore.openWindow('device-manager', '设备管理器', 'DeviceManager', {}, { center: true });
   showStartMenu.value = false;
 };
 
@@ -94,7 +94,12 @@ const updateSystemStatus = async () => {
 };
 
 const focusWindow = (windowId: string) => {
-  windowsStore.focusWindow(windowId);
+  const window = windowsStore.windows.find(w => w.id === windowId);
+  if (window && window.isMinimized) {
+    windowsStore.restoreWindow(windowId);
+  } else {
+    windowsStore.focusWindow(windowId);
+  }
 };
 
 const closeWindow = (windowId: string, event: Event) => {
@@ -200,7 +205,10 @@ onUnmounted(() => {
         v-for="window in windowsStore.windows"
         :key="window.id"
         class="taskbar-item"
-        :class="{ active: window.isFocused }"
+        :class="{
+          active: window.isFocused && !window.isMinimized,
+          minimized: window.isMinimized
+        }"
         @click="focusWindow(window.id)"
       >
         <span class="window-title">{{ window.title }}</span>
@@ -471,6 +479,22 @@ onUnmounted(() => {
   box-shadow:
     inset 0 2px 6px rgba(0, 120, 215, 0.15),
     0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+/* 最小化窗口的任务栏项样式 */
+.taskbar-item.minimized {
+  background: rgba(150, 150, 150, 0.3);
+  border-color: rgba(150, 150, 150, 0.4);
+  opacity: 0.7;
+}
+
+.taskbar-item.minimized .window-title {
+  color: #666;
+  font-style: italic;
+}
+
+.taskbar-item.minimized::before {
+  background: linear-gradient(90deg, #888, #666);
 }
 
 .window-title {

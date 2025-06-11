@@ -26,14 +26,8 @@ export const processAPI = {
 
 // 调度器 API
 export const schedulerAPI = {
-  // 获取调度器状态
-  getStatus: () => apiClient.get('/scheduler/status'),
-
   // 执行调度tick
   tick: () => apiClient.post('/scheduler/tick'),
-
-  // 注意：后端没有实现设置调度算法的API
-  // setAlgorithm: (algorithm: string) => apiClient.put('/scheduler/algorithm', { algorithm }),
 
   // 获取就绪队列（修正路径为ready_queue）
   getReadyQueue: () => apiClient.get('/scheduler/ready_queue'),
@@ -129,8 +123,11 @@ export const deviceAPI = {
     apiClient.post(`/devices/${deviceId}/release`),
 
   // 设备操作（修正为后端实际端点）
-  deviceOperation: (deviceId: number) =>
-    apiClient.post(`/devices/${deviceId}/operation`),
+  deviceOperation: (deviceId: number, operation: string = 'TEST', params: any = {}) =>
+    apiClient.post(`/devices/${deviceId}/operation`, {
+      operation,
+      params
+    }),
 };
 
 // 中断管理 API
@@ -159,8 +156,9 @@ export const clockAPI = {
   setInterval: (interval: number) =>
     apiClient.post('/clock/interval', { interval }),
 
-  // 获取时钟状态
-  getStatus: () => apiClient.get('/clock/status'),
+  // 设置定时器
+  setTimer: (delay: number, repeat: boolean = false, interval?: number) =>
+    apiClient.post('/clock/timer', { delay, repeat, interval }),
 };
 
 // 系统控制 API

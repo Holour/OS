@@ -5,11 +5,3 @@ declare module '*.vue' {
   const component: DefineComponent<{}, {}, any>
   export default component
 }
-
-declare module 'vue' {
-  interface ComponentCustomProperties {}
-}
-
-declare module '@vue/runtime-core' {
-  interface ComponentCustomProperties {}
-}

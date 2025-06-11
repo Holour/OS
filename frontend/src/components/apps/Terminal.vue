@@ -91,6 +91,9 @@ const executeCommand = async () => {
       case 'inttable':
         await handleIntTable();
         break;
+      case 'int':
+        await handleInt(args);
+        break;
 
       // 时钟管理命令
       case 'time':
@@ -106,6 +109,18 @@ const executeCommand = async () => {
         break;
       case 'uptime':
         await handleUptime();
+        break;
+      case 'whoami':
+        handleWhoami();
+        break;
+      case 'date':
+        await handleDate();
+        break;
+      case 'schedule':
+        await handleSchedule(args);
+        break;
+      case 'top':
+        await handleTop();
         break;
 
       default:
@@ -144,8 +159,106 @@ const handleTrigger = async (args: string[]) => {
 };
 
 const handleIntTable = async () => {
+  try {
   const res = await interruptAPI.getInterruptTable();
-  addToHistory('response', res.data);
+    if (res.data.status === 'success') {
+      const vectors = res.data.data.vectors;
+      if (vectors && vectors.length > 0) {
+        let output = 'Vector  Type       Priority  Status\n';
+        output += '------  ---------  --------  --------\n';
+        vectors.forEach((vector: any) => {
+          const vectorNum = vector.vector.toString().padEnd(6);
+          const type = vector.handler_type.padEnd(9);
+          const priority = vector.priority.toString().padEnd(8);
+          const status = vector.enabled ? 'ENABLED' : 'DISABLED';
+          output += `${vectorNum}  ${type}  ${priority}  ${status}\n`;
+        });
+        addToHistory('response', output.trim());
+      } else {
+        addToHistory('info', 'No interrupt handlers registered');
+      }
+    }
+  } catch (error: any) {
+    const errorMsg = error.response?.data?.message || error.message || 'Unknown error';
+    addToHistory('error', `Failed to get interrupt table: ${errorMsg}`);
+  }
+};
+
+// 简化的中断命令
+const handleInt = async (args: string[]) => {
+  if (args.length === 0) {
+    addToHistory('info', 'Usage: int <command> [args...]\nCommands: list, register, trigger, simulate');
+    return;
+  }
+
+  const subCmd = args[0].toLowerCase();
+  const subArgs = args.slice(1);
+
+  switch (subCmd) {
+    case 'list':
+      await handleIntTable();
+      break;
+    case 'register':
+      await handleRegister(subArgs);
+      break;
+    case 'trigger':
+      await handleTrigger(subArgs);
+      break;
+    case 'simulate':
+      await handleIntSimulate(subArgs);
+      break;
+    default:
+      addToHistory('error', `int: unknown command '${subCmd}'`);
+  }
+};
+
+// 模拟中断场景
+const handleIntSimulate = async (args: string[]) => {
+  if (args.length === 0) {
+    addToHistory('info', 'Available simulations: timer, keyboard, disk, network, syscall');
+    return;
+  }
+
+  const scenario = args[0].toLowerCase();
+  try {
+    switch (scenario) {
+      case 'timer':
+        // 模拟时钟中断
+        await interruptAPI.setHandler(32, 'TIMER');
+        await interruptAPI.triggerInterrupt(32, { tick_count: Date.now() });
+        addToHistory('info', 'Simulated timer interrupt (vector 32)');
+        break;
+      case 'keyboard':
+        // 模拟键盘中断
+        await interruptAPI.setHandler(33, 'IO');
+        await interruptAPI.triggerInterrupt(33, { device: 'keyboard', key_code: 65 });
+        addToHistory('info', 'Simulated keyboard interrupt (vector 33)');
+        break;
+      case 'disk':
+        // 模拟磁盘中断
+        await interruptAPI.setHandler(46, 'IO');
+        await interruptAPI.triggerInterrupt(46, { device: 'disk', operation: 'read_complete' });
+        addToHistory('info', 'Simulated disk I/O interrupt (vector 46)');
+        break;
+      case 'network':
+        // 模拟网络中断
+        await interruptAPI.setHandler(47, 'IO');
+        await interruptAPI.triggerInterrupt(47, { device: 'network', packet_received: true });
+        addToHistory('info', 'Simulated network interrupt (vector 47)');
+        break;
+      case 'syscall':
+        // 模拟系统调用中断
+        await interruptAPI.setHandler(0x80, 'SYSCALL');
+        await interruptAPI.triggerInterrupt(0x80, { syscall_number: 1, process_id: 123 });
+        addToHistory('info', 'Simulated system call interrupt (vector 128)');
+        break;
+      default:
+        addToHistory('error', `int simulate: unknown scenario '${scenario}'`);
+    }
+  } catch (error: any) {
+    const errorMsg = error.response?.data?.message || error.message || 'Unknown error';
+    addToHistory('error', `Failed to simulate interrupt: ${errorMsg}`);
+  }
 };
 
 // 显示帮助信息
@@ -166,19 +279,33 @@ Process Management:
   ps                 - List running processes
   kill <pid>         - Terminate process
   run <program> <memory> - Create new process
+  top                - Show system resources and processes
 
 System Information:
   free               - Show memory usage
   lsdev              - List devices
   time               - Show current time
   timer <delay>      - Set timer
+  date               - Show current date and time
   uname              - Show system info
   uptime             - Show system uptime
+  whoami             - Show current user
+
+Scheduler Management:
+  schedule tick      - Execute one scheduling tick
+  schedule queue     - Show ready queue
+  schedule status    - Show process status
 
 Interrupt Management:
   register <vector> <type> [priority] - Register interrupt handler
   trigger <vector> [data]             - Trigger interrupt
   inttable                           - Show interrupt table
+  int <cmd> [args]                   - Interrupt management commands
+    int list                         - List interrupt vectors
+    int register <vector> <type>     - Register handler
+    int trigger <vector> [data]      - Trigger interrupt
+    int simulate <scenario>          - Simulate interrupt scenarios
+      Available scenarios: timer, keyboard, disk, network, syscall
 
 General:
   help               - Show this message
@@ -193,28 +320,34 @@ const handleLs = async (args: string[]) => {
   try {
     const res = await filesystemAPI.listDirectory(path);
     if (res.data.status === 'success') {
-      const { files, directories } = res.data.data;
+      const items = res.data.data;
       let output = '';
 
-      // 显示目录
-      directories.forEach((dir: any) => {
-        output += `📁 ${dir.name.padEnd(20)} <DIR>     ${dir.last_modified}\n`;
-      });
+      if (items && items.length > 0) {
+        // 按类型排序：目录在前，文件在后
+        const sortedItems = items.sort((a: any, b: any) => {
+          if (a.type === 'directory' && b.type === 'file') return -1;
+          if (a.type === 'file' && b.type === 'directory') return 1;
+          return a.name.localeCompare(b.name);
+        });
 
-      // 显示文件
-      files.forEach((file: any) => {
-        const size = file.size.toString().padStart(8);
-        output += `📄 ${file.name.padEnd(20)} ${size}   ${file.last_modified}\n`;
-      });
+        sortedItems.forEach((item: any) => {
+          const icon = item.type === 'directory' ? '📁' : '📄';
+          const size = item.type === 'directory' ? '<DIR>' : formatFileSize(item.size || 0);
+          const permissions = formatPermissions(item.permissions || 0);
+          const modified = formatDateTime(item.modified_at || item.created_at);
 
-      if (output) {
+          output += `${icon} ${item.name.padEnd(20)} ${size.padStart(8)} ${permissions} ${modified}\n`;
+        });
+
         addToHistory('response', output.trim());
       } else {
         addToHistory('info', 'Directory is empty');
       }
     }
-  } catch (error) {
-    addToHistory('error', `ls: cannot access '${path}': No such file or directory`);
+  } catch (error: any) {
+    const errorMsg = error.response?.data?.message || error.message || 'Unknown error';
+    addToHistory('error', `ls: cannot access '${path}': ${errorMsg}`);
   }
 };
 
@@ -321,10 +454,12 @@ const handleTouch = async (args: string[]) => {
   }
 
   try {
-    await filesystemAPI.createFile(filePath, '');
+    // 根据API文档，createFile需要模拟大小参数
+    await filesystemAPI.createFile(filePath, 0, 0o644);
     addToHistory('info', `File created: ${filePath}`);
-  } catch (error) {
-    addToHistory('error', `touch: cannot create file '${filePath}'`);
+  } catch (error: any) {
+    const errorMsg = error.response?.data?.message || error.message || 'Unknown error';
+    addToHistory('error', `touch: cannot create file '${filePath}': ${errorMsg}`);
   }
 };
 
@@ -358,19 +493,25 @@ const handlePs = async () => {
     const res = await processAPI.getProcesses();
     if (res.data.status === 'success') {
       const processes = res.data.data;
-      let output = 'PID    NAME           MEMORY   STATE\n';
-      output += '----   -------------- -------- ---------\n';
+      if (processes && processes.length > 0) {
+        let output = 'PID    STATE      MEMORY    PC\n';
+        output += '----   --------   --------  --------\n';
       processes.forEach((proc: any) => {
         const pid = proc.pid.toString().padEnd(6);
-        const name = proc.name.padEnd(14);
-        const memory = proc.memory_size.toString().padEnd(8);
-        const state = proc.state;
-        output += `${pid} ${name} ${memory} ${state}\n`;
+          const state = proc.state.padEnd(10);
+          const memory = proc.memory_info?.length > 0 ?
+            formatFileSize(proc.memory_info[0].size) : 'N/A';
+          const pc = proc.program_counter?.toString() || 'N/A';
+          output += `${pid} ${state} ${memory.padEnd(8)} ${pc}\n`;
       });
       addToHistory('response', output.trim());
+      } else {
+        addToHistory('info', 'No processes running');
+      }
     }
-  } catch (error) {
-    addToHistory('error', 'Failed to list processes');
+  } catch (error: any) {
+    const errorMsg = error.response?.data?.message || error.message || 'Unknown error';
+    addToHistory('error', `Failed to list processes: ${errorMsg}`);
   }
 };
 
@@ -482,6 +623,7 @@ const handleTime = async () => {
 const handleTimer = async (args: string[]) => {
   if (args.length === 0) {
     addToHistory('error', 'timer: missing delay argument');
+    addToHistory('info', 'Usage: timer <delay> [repeat] [interval]');
     return;
   }
 
@@ -491,11 +633,26 @@ const handleTimer = async (args: string[]) => {
     return;
   }
 
+  const repeat = args[1] === 'true' || args[1] === '1';
+  const interval = args[2] ? parseInt(args[2]) : undefined;
+
   try {
-    await clockAPI.setInterval(delay);
-    addToHistory('info', `Clock interval set to ${delay} ms`);
-  } catch (error) {
-    addToHistory('error', `Failed to set clock interval`);
+    if (args.length === 1 && args[0] === 'interval') {
+      // 特殊情况：设置时钟间隔
+      const newInterval = parseInt(args[1]) || 100;
+      await clockAPI.setInterval(newInterval);
+      addToHistory('info', `Clock interval set to ${newInterval} ms`);
+    } else {
+      // 设置定时器
+      const res = await clockAPI.setTimer(delay, repeat, interval);
+      if (res.data.status === 'success') {
+        const timerId = res.data.data.timer_id;
+        addToHistory('info', `Timer ${timerId} set for ${delay}ms${repeat ? ' (repeating)' : ''}`);
+      }
+    }
+  } catch (error: any) {
+    const errorMsg = error.response?.data?.message || error.message || 'Unknown error';
+    addToHistory('error', `Failed to set timer: ${errorMsg}`);
   }
 };
 
@@ -525,6 +682,111 @@ const handleUptime = async () => {
   }
 };
 
+const handleWhoami = () => {
+  addToHistory('response', 'root');
+};
+
+const handleDate = async () => {
+  try {
+    const res = await clockAPI.getTime();
+    if (res.data.status === 'success') {
+      const realTime = res.data.data.real_time;
+      const date = new Date(realTime);
+      addToHistory('response', date.toLocaleString('zh-CN'));
+    }
+  } catch (error) {
+    addToHistory('response', new Date().toLocaleString('zh-CN'));
+  }
+};
+
+const handleSchedule = async (args: string[]) => {
+  if (args.length === 0) {
+    addToHistory('info', 'Usage: schedule <command>\nCommands: tick, queue, status');
+    return;
+  }
+
+  const subCmd = args[0].toLowerCase();
+  try {
+    switch (subCmd) {
+      case 'tick':
+        const res = await schedulerAPI.tick();
+        if (res.data.status === 'success') {
+          if (res.data.data) {
+            addToHistory('info', `Scheduled process ${res.data.data.pid} to run`);
+          } else {
+            addToHistory('info', 'No process to schedule (ready queue is empty)');
+          }
+        }
+        break;
+      case 'queue':
+        const queueRes = await schedulerAPI.getReadyQueue();
+        if (queueRes.data.status === 'success') {
+          const queue = queueRes.data.data;
+          if (queue && queue.length > 0) {
+            let output = 'Ready Queue:\n';
+            queue.forEach((proc: any, index: number) => {
+              output += `${index + 1}. PID ${proc.pid} (${proc.state})\n`;
+            });
+            addToHistory('response', output.trim());
+          } else {
+            addToHistory('info', 'Ready queue is empty');
+          }
+        }
+        break;
+      case 'status':
+        await handlePs();
+        break;
+      default:
+        addToHistory('error', `schedule: unknown command '${subCmd}'`);
+    }
+  } catch (error: any) {
+    const errorMsg = error.response?.data?.message || error.message || 'Unknown error';
+    addToHistory('error', `schedule: ${errorMsg}`);
+  }
+};
+
+const handleTop = async () => {
+  try {
+    const [processRes, memoryRes] = await Promise.all([
+      processAPI.getProcesses(),
+      memoryAPI.getStatus()
+    ]);
+
+    let output = 'System Resources:\n';
+
+    // 内存信息
+    if (memoryRes.data.status === 'success') {
+      const memory = memoryRes.data.data;
+      const totalMB = Math.round(memory.total_memory / 1024 / 1024);
+      const usedMB = Math.round(memory.used_memory / 1024 / 1024);
+      const freeMB = totalMB - usedMB;
+      const usage = Math.round((memory.used_memory / memory.total_memory) * 100);
+
+      output += `Memory: ${usedMB}MB used, ${freeMB}MB free, ${totalMB}MB total (${usage}%)\n\n`;
+    }
+
+    // 进程信息
+    if (processRes.data.status === 'success') {
+      const processes = processRes.data.data;
+      output += 'PID    STATE      MEMORY    PC\n';
+      output += '----   --------   --------  --------\n';
+      processes.forEach((proc: any) => {
+        const pid = proc.pid.toString().padEnd(6);
+        const state = proc.state.padEnd(10);
+        const memory = proc.memory_info?.length > 0 ?
+          formatFileSize(proc.memory_info[0].size) : 'N/A';
+        const pc = proc.program_counter.toString();
+        output += `${pid} ${state} ${memory.padEnd(8)} ${pc}\n`;
+      });
+    }
+
+    addToHistory('response', output.trim());
+  } catch (error: any) {
+    const errorMsg = error.response?.data?.message || error.message || 'Unknown error';
+    addToHistory('error', `top: ${errorMsg}`);
+  }
+};
+
 const addToHistory = (type: HistoryItem['type'], content: string | object) => {
   history.value.push({ id: historyId++, type, content });
   scrollToBottom();
@@ -536,6 +798,32 @@ const scrollToBottom = () => {
       historyEl.value.scrollTop = historyEl.value.scrollHeight;
     }
   });
+};
+
+// 格式化文件大小
+const formatFileSize = (bytes: number): string => {
+  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)}G`;
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}M`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)}K`;
+  return `${bytes}B`;
+};
+
+// 格式化权限
+const formatPermissions = (permissions: number): string => {
+  if (!permissions) return '---';
+  const octal = permissions.toString(8);
+  return octal.length > 3 ? octal.slice(-3) : octal.padStart(3, '0');
+};
+
+// 格式化日期时间
+const formatDateTime = (dateStr: string): string => {
+  if (!dateStr) return '--------';
+  try {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('zh-CN') + ' ' + date.toLocaleTimeString('zh-CN', { hour12: false }).slice(0, 5);
+  } catch {
+    return '--------';
+  }
 };
 </script>
 
