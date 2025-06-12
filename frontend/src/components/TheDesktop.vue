@@ -35,6 +35,7 @@ const componentMap: Record<string, any> = {
   MemoryManager: defineAsyncComponent(() => import('./apps/MemoryManager.vue')),
   DeviceManager: defineAsyncComponent(() => import('./apps/DeviceManager.vue')),
   SystemControl: defineAsyncComponent(() => import('./apps/SystemControl.vue')),
+  FileAddressViewer: defineAsyncComponent(() => import('./apps/FileAddressViewer.vue')),
 };
 
 // 加载桌面文件（根目录）
@@ -115,8 +116,6 @@ const handlePubtFile = async (file: FileItem) => {
     throw err; // 重新抛出错误，让上层处理
   }
 };
-
-
 
 // 格式化字节数为可读格式
 const formatBytes = (bytes: number): string => {
@@ -337,6 +336,18 @@ const showProperties = () => {
   hideAllContextMenus();
 };
 
+// 处理文件地址查看请求
+const handleOpenFileAddress = (filePath: string) => {
+  const fileName = filePath.split('/').pop() || 'unknown';
+  const windowId = `file-address-${filePath.replace(/\//g, '-')}`;
+  windowsStore.openWindow(
+    windowId,
+    `文件地址 - ${fileName}`,
+    'FileAddressViewer',
+    { filePath }
+  );
+};
+
 onMounted(() => {
   loadDesktopFiles();
   loadIconPositions();
@@ -421,7 +432,11 @@ onUnmounted(() => {
       :windowState="win"
       v-show="win.isVisible"
     >
-      <component :is="componentMap[win.component]" v-bind="win.props" />
+      <component
+        :is="componentMap[win.component]"
+        v-bind="win.props"
+        @openFileAddress="handleOpenFileAddress"
+      />
     </AppWindow>
   </div>
 </template>

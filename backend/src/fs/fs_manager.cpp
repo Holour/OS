@@ -69,7 +69,113 @@ void FileSystemManager::initialize() {
 }
 
 void FileSystemManager::set_allocation_strategy(AllocationStrategy strategy) {
+    // 如果策略未变，无需处理
+    if (strategy == this->current_strategy) {
+        log_operation("CONFIG", "SET_STRATEGY", "NOOP", "Strategy unchanged");
+        return;
+    }
+
+    // 1. 收集所有文件的信息，并释放其占用块
+    struct FileMeta { uint32_t inode_idx; uint64_t size; };
+    std::vector<FileMeta> files;
+
+    for (uint32_t idx = 0; idx < inode_table.size(); ++idx) {
+        auto& inode = inode_table[idx];
+        if (inode.type == InodeType::FILE) {
+            files.push_back({idx, inode.simulated_size});
+            // 释放旧块
+            free_blocks(inode);
+            // 临时置空 allocation_info，避免错误读取
+            inode.allocation_info = ContiguousAllocation{0,0};
+        }
+    }
+
+    // 2. 切换策略
     this->current_strategy = strategy;
+
+    // 3. 依据新策略为每个文件重新分配块
+    for (const auto& meta : files) {
+        auto& inode = inode_table[meta.inode_idx];
+        uint64_t size = meta.size;
+        uint32_t num_blocks_needed = (size == 0) ? 0 : static_cast<uint32_t>(std::ceil(static_cast<double>(size) / BLOCK_SIZE));
+
+        bool ok = false;
+        switch (strategy) {
+            case AllocationStrategy::CONTIGUOUS: {
+                if (num_blocks_needed == 0) {
+                    inode.allocation_info = ContiguousAllocation{0,0};
+                    ok = true;
+                } else {
+                    auto alloc_opt = allocate_contiguous_blocks(num_blocks_needed);
+                    if (alloc_opt) {
+                        inode.allocation_info = *alloc_opt;
+                        ok = true;
+                    }
+                }
+                break;
+            }
+            case AllocationStrategy::LINKED: {
+                if (num_blocks_needed == 0) {
+                    inode.allocation_info = LinkedAllocation{0,0};
+                    ok = true;
+                } else {
+                    std::vector<uint32_t> chain;
+                    for (uint32_t i = 0; i < num_blocks_needed; ++i) {
+                        auto blk_opt = allocate_block();
+                        if (!blk_opt) { ok = false; break; }
+                        chain.push_back(*blk_opt);
+                    }
+                    if (chain.size() == num_blocks_needed) {
+                        for (size_t i = 0; i + 1 < chain.size(); ++i) {
+                            uint32_t next_blk = chain[i+1];
+                            uint64_t off = (uint64_t)chain[i] * BLOCK_SIZE;
+                            write_disk(off + BLOCK_SIZE - sizeof(uint32_t), &next_blk, sizeof(uint32_t));
+                        }
+                        inode.allocation_info = LinkedAllocation{chain.front(), chain.back()};
+                        ok = true;
+                    } else {
+                        // 回滚已分配
+                        for (uint32_t blk : chain) free_block(blk);
+                    }
+                }
+                break;
+            }
+            case AllocationStrategy::INDEXED: {
+                auto index_blk_opt = allocate_block();
+                if (!index_blk_opt) { ok = false; break; }
+
+                if (num_blocks_needed == 0) {
+                    inode.allocation_info = IndexedAllocation{*index_blk_opt};
+                    ok = true;
+                } else {
+                    std::vector<uint32_t> data_blocks;
+                    for (uint32_t i = 0; i < num_blocks_needed; ++i) {
+                        auto blk_opt = allocate_block();
+                        if (!blk_opt) { ok = false; break; }
+                        data_blocks.push_back(*blk_opt);
+                    }
+                    if (data_blocks.size() == num_blocks_needed) {
+                        // 将数据块指针写入索引块
+                        uint64_t idx_off = (uint64_t)*index_blk_opt * BLOCK_SIZE;
+                        write_disk(idx_off, data_blocks.data(), data_blocks.size() * sizeof(uint32_t));
+                        inode.allocation_info = IndexedAllocation{*index_blk_opt};
+                        ok = true;
+                    } else {
+                        // 回滚
+                        for (uint32_t blk : data_blocks) free_block(blk);
+                        free_block(*index_blk_opt);
+                    }
+                }
+                break;
+            }
+        }
+
+        if (!ok) {
+            // 如果重新分配失败，则记录错误日志但继续处理其他文件，确保模拟不中断
+            log_operation("REALLOC", "inode_" + std::to_string(meta.inode_idx), "FAIL", "Reallocate blocks failed");
+        }
+    }
+
     log_operation("CONFIG", "SET_STRATEGY", "SUCCESS", "Set allocation strategy to " + std::to_string((int)strategy));
 }
 

@@ -25,7 +25,9 @@ interface MemoryStatus {
 const memoryStatus = ref<MemoryStatus | null>(null);
 const processes = ref<any[]>([]);
 const isLoading = ref(true);
+const isChangingStrategy = ref(false);
 const error = ref<string | null>(null);
+const successMessage = ref<string | null>(null);
 const selectedStrategy = ref(0);  // 当前选择的内存分配策略
 let intervalId: number;
 
@@ -34,6 +36,14 @@ const strategyNames = {
   0: '连续分配',
   1: '分区分配',
   2: '分页分配'
+};
+
+// 显示成功消息
+const showSuccess = (message: string) => {
+  successMessage.value = message;
+  setTimeout(() => {
+    successMessage.value = null;
+  }, 3000);
 };
 
 const fetchMemoryData = async () => {
@@ -63,14 +73,17 @@ const fetchMemoryData = async () => {
 // 设置内存分配策略
 const setMemoryStrategy = async () => {
   try {
+    isChangingStrategy.value = true;
+    const oldStrategy = memoryStatus.value?.allocation_strategy;
     const response = await memoryAPI.setStrategy(selectedStrategy.value);
     if (response.data.status === 'success') {
-      alert(`内存分配策略已更改为: ${strategyNames[selectedStrategy.value as keyof typeof strategyNames]}`);
+      showSuccess(`内存分配策略已从 ${strategyNames[oldStrategy as keyof typeof strategyNames]} 更改为 ${strategyNames[selectedStrategy.value as keyof typeof strategyNames]}`);
       await fetchMemoryData(); // 重新获取数据
     }
   } catch (err: any) {
     error.value = err.message || 'Failed to set memory strategy';
-    alert('设置内存分配策略失败: ' + error.value);
+  } finally {
+    isChangingStrategy.value = false;
   }
 };
 
@@ -101,10 +114,14 @@ onUnmounted(() => {
 <template>
   <div class="memory-manager">
     <div class="header">
-      <h3>内存管理器</h3>
+      <div class="header-content">
+        <h3>🧠 内存管理器</h3>
+        <div class="header-subtitle">内存分配策略管理</div>
+      </div>
       <button @click="fetchMemoryData" :disabled="isLoading">刷新</button>
     </div>
 
+    <div v-if="successMessage" class="success">✅ {{ successMessage }}</div>
     <div v-if="error" class="error">{{ error }}</div>
 
     <div v-if="isLoading" class="loading">加载中...</div>
@@ -144,13 +161,30 @@ onUnmounted(() => {
       <!-- 内存分配策略控制 -->
       <div class="strategy-control">
         <h4>内存分配策略</h4>
+
+        <!-- 策略切换等待动画 -->
+        <div v-if="isChangingStrategy" class="strategy-loading">
+          <div class="loading-animation">
+            <div class="loading-spinner">🧠</div>
+            <div class="loading-text">正在切换内存分配策略...</div>
+            <div class="loading-progress">
+              <div class="progress-bar-loading">
+                <div class="progress-fill-loading"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="control-row">
-          <select v-model="selectedStrategy">
+          <select v-model="selectedStrategy" :disabled="isChangingStrategy">
             <option :value="0">连续分配</option>
             <option :value="1">分区分配</option>
             <option :value="2">分页分配</option>
           </select>
-          <button @click="setMemoryStrategy">更改策略</button>
+          <button @click="setMemoryStrategy" :disabled="isChangingStrategy || selectedStrategy === memoryStatus?.allocation_strategy">
+            <span v-if="isChangingStrategy">⏳ 切换中...</span>
+            <span v-else>🚀 更改策略</span>
+          </button>
         </div>
       </div>
 
@@ -246,15 +280,38 @@ onUnmounted(() => {
   background-color: #f5f5f5;
 }
 
-.header h3 {
+.header-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.header-content h3 {
   margin: 0;
 }
 
+.header-subtitle {
+  color: #666;
+  font-size: 0.8em;
+}
+
+.success {
+  background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+  color: #155724;
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  border: 1px solid #c3e6cb;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  font-weight: 500;
+}
+
 .error {
-  background-color: #ffe6e6;
-  color: #d8000c;
+  background: #f8d7da;
+  color: #721c24;
   padding: 10px;
-  margin: 10px;
+  border-radius: 4px;
+  margin-bottom: 10px;
+  border: 1px solid #f5c6cb;
 }
 
 .loading {
@@ -491,5 +548,63 @@ onUnmounted(() => {
 
 .memory-block-item .size {
   color: #6c757d;
+}
+
+.strategy-loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+  margin-bottom: 20px;
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  border-radius: 12px;
+  border: 1px solid #dee2e6;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.loading-animation {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 15px;
+}
+
+.loading-spinner {
+  font-size: 24px;
+  animation: spin 2s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.loading-text {
+  font-weight: 600;
+  color: #495057;
+  font-size: 14px;
+  text-align: center;
+}
+
+.loading-progress {
+  width: 200px;
+  height: 8px;
+  background: #e9ecef;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid #ccc;
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.progress-bar-loading {
+  background: linear-gradient(90deg, #007bff 0%, #28a745 50%, #ffc107 100%);
+  width: 0%;
+  animation: progressFill 2s ease-in-out infinite;
+}
+
+@keyframes progressFill {
+  0% { width: 0%; }
+  50% { width: 70%; }
+  100% { width: 100%; }
 }
 </style>

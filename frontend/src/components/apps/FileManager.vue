@@ -42,9 +42,10 @@ const showCreateFileDialog = ref(false);
 const newFileSimulatedSize = ref(0);
 const fileSizeUnit = ref('B');
 
-// 新增：文件地址查看
-const showFileAddressDialog = ref(false);
-const fileAddressInfo = ref<FileAddress | null>(null);
+// 定义事件发射器
+const emit = defineEmits<{
+  openFileAddress: [filePath: string]
+}>();
 
 const loadDirectory = async (path: string = currentPath.value) => {
   isLoading.value = true;
@@ -154,16 +155,8 @@ const readFile = async (fileName: string) => {
 };
 
 const showFileAddress = async (fileName: string) => {
-  try {
-    const filePath = currentPath.value === '/' ? fileName : `${currentPath.value}/${fileName}`;
-    const response = await filesystemAPI.getFileAddress(filePath);
-    if (response.data.status === 'success') {
-      fileAddressInfo.value = response.data.data;
-      showFileAddressDialog.value = true;
-    }
-  } catch (err: any) {
-    error.value = `获取文件地址失败: ${err.response?.data?.message || err.message || '未知错误'}`;
-  }
+  const filePath = currentPath.value === '/' ? `/${fileName}` : `${currentPath.value}/${fileName}`;
+  emit('openFileAddress', filePath);
 };
 
 // 处理.pubt文件执行
@@ -251,13 +244,6 @@ const recursiveDeleteFromMenu = () => {
   hideFileContextMenu();
 };
 
-const showFileAddressFromMenu = () => {
-  if (contextMenuFile.value && contextMenuFile.value.type === 'file') {
-    showFileAddress(contextMenuFile.value.name);
-  }
-  hideFileContextMenu();
-};
-
 const showFileProperties = () => {
   if (!contextMenuFile.value) return;
 
@@ -290,6 +276,13 @@ const getFileIcon = (file: FileItem) => {
     case 'pubt': return '🚀'; // .pubt文件显示火箭图标
     default: return '📄';
   }
+};
+
+const showFileAddressFromMenu = () => {
+  if (contextMenuFile.value && contextMenuFile.value.type === 'file') {
+    showFileAddress(contextMenuFile.value.name);
+  }
+  hideFileContextMenu();
 };
 
 onMounted(() => {
@@ -395,41 +388,6 @@ onUnmounted(() => {
         <div class="modal-footer">
           <button @click="showCreateFileDialog = false" class="cancel-btn">取消</button>
           <button @click="createFile" :disabled="!newFileName.trim()" class="confirm-btn">创建</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- 文件地址信息对话框 -->
-    <div v-if="showFileAddressDialog" class="modal-backdrop" @click="showFileAddressDialog = false">
-      <div class="modal-content" @click.stop>
-        <div class="modal-header">
-          <h3>📍 文件存储地址</h3>
-          <button @click="showFileAddressDialog = false" class="close-btn">❌</button>
-        </div>
-        <div class="modal-body" v-if="fileAddressInfo">
-          <div class="address-info">
-            <div class="address-path">
-              <strong>文件路径:</strong> {{ fileAddressInfo.path }}
-            </div>
-            <div class="address-details">
-              <h4>📦 存储地址信息:</h4>
-              <div v-if="fileAddressInfo.addresses.contiguous !== undefined" class="address-item">
-                <span class="address-type">连续分配:</span>
-                <span class="address-value">块 #{{ fileAddressInfo.addresses.contiguous }}</span>
-              </div>
-              <div v-if="fileAddressInfo.addresses.linked !== undefined" class="address-item">
-                <span class="address-type">链接分配:</span>
-                <span class="address-value">起始块 #{{ fileAddressInfo.addresses.linked }}</span>
-              </div>
-              <div v-if="fileAddressInfo.addresses.indexed !== undefined" class="address-item">
-                <span class="address-type">索引分配:</span>
-                <span class="address-value">索引块 #{{ fileAddressInfo.addresses.indexed }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button @click="showFileAddressDialog = false" class="confirm-btn">关闭</button>
         </div>
       </div>
     </div>

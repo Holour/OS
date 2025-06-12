@@ -182,6 +182,32 @@ void run_filesystem_tests() {
     run_strategy_test(cli, "LINKED");
     run_strategy_test(cli, "CONTIGUOUS");
     
+    // --- 新增：测试切换策略后地址重新计算 ---
+    std::cout << "\n\n--- Testing Address Reallocation After Strategy Switch ---" << std::endl;
+    const std::string BASE_DIR = "/switch_test";
+    const std::string FILE_PATH = BASE_DIR + "/sample.dat";
+
+    // 确保干净环境
+    cleanup_path(cli, BASE_DIR);
+
+    // 1. 使用 CONTIGUOUS 创建
+    test_set_allocation_strategy(cli, "CONTIGUOUS");
+    test_create_directory(cli, BASE_DIR, 201);
+    test_create_file(cli, FILE_PATH, 8192, 201); // 8KB
+    test_get_file_address(cli, FILE_PATH, "CONTIGUOUS");
+
+    // 2. 切换到 LINKED
+    test_set_allocation_strategy(cli, "LINKED");
+    test_get_file_address(cli, FILE_PATH, "LINKED");
+
+    // 3. 切换到 INDEXED
+    test_set_allocation_strategy(cli, "INDEXED");
+    test_get_file_address(cli, FILE_PATH, "INDEXED");
+
+    // 清理
+    cleanup_path(cli, BASE_DIR);
+    test_set_allocation_strategy(cli, "INDEXED"); // 恢复默认
+
     // Test some failure cases
     std::cout << "\n\n--- Testing Failure Cases ---" << std::endl;
     const std::string NON_EXISTENT_FILE = "/non/existent/path/file.txt";
