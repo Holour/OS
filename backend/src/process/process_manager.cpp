@@ -22,10 +22,14 @@ std::optional<ProcessID> ProcessManager::create_process(uint64_t size) {
     pcb->state = ProcessState::READY;
     pcb->memory_info.push_back(block_opt.value());
     
-    // 计算并设置进程起始地址
-    uint64_t base_address = memory_manager.get_process_base_address(new_pid);
-    if (base_address != UINT64_MAX) {
-        pcb->memory_info[0].base_address = base_address;
+    // 对于分区(PARTITIONED)或分页(PAGED)策略, 需要重新获取并覆盖首地址;
+    // 连续分配(CONTINUOUS)策略下, allocate_for_process 已经返回了正确的 base_address, 无需覆盖
+    auto current_strategy = memory_manager.get_allocation_strategy();
+    if (current_strategy != MemoryAllocationStrategy::CONTINUOUS) {
+        uint64_t base_address = memory_manager.get_process_base_address(new_pid);
+        if (base_address != UINT64_MAX) {
+            pcb->memory_info[0].base_address = base_address;
+        }
     }
 
     all_processes[pcb->pid] = pcb;

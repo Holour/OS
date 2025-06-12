@@ -293,21 +293,78 @@ int main(int argc, char* argv[]) {
                     res.set_content(create_error_response("Missing or invalid 'strategy' field.").dump(), "application/json; charset=utf-8");
                     return;
                 }
-                
+
                 int strategy_int = body["strategy"];
                 if (strategy_int < 0 || strategy_int > 2) {
                     res.status = 400;
                     res.set_content(create_error_response("Invalid strategy value. Must be 0(CONTINUOUS), 1(PARTITIONED), or 2(PAGED).").dump(), "application/json; charset=utf-8");
                     return;
                 }
-                
-                auto strategy = static_cast<MemoryAllocationStrategy>(strategy_int);
-                memory_manager->set_allocation_strategy(strategy);
-                
-                json data;
-                data["old_strategy"] = static_cast<int>(memory_manager->get_allocation_strategy());
-                data["new_strategy"] = strategy_int;
-                
+
+                // 记录旧策略
+                auto old_strategy = memory_manager->get_allocation_strategy();
+                auto requested_strategy = static_cast<MemoryAllocationStrategy>(strategy_int);
+
+                // 如果策略未改变，直接返回
+                if (requested_strategy == old_strategy) {
+                    json data = {
+                        {"old_strategy", static_cast<int>(old_strategy)},
+                        {"new_strategy", static_cast<int>(requested_strategy)}
+                    };
+                    res.set_content(create_success_response(data, "Memory allocation strategy unchanged.").dump(), "application/json; charset=utf-8");
+                    return;
+                }
+
+                // Step 1: 收集现有进程的内存需求并释放旧内存
+                struct ProcInfo { ProcessID pid; uint64_t size; };
+                std::vector<ProcInfo> proc_infos;
+                for (const auto& pcb_ptr : process_manager->get_all_processes()) {
+                    uint64_t total_size = 0;
+                    for (const auto& blk : pcb_ptr->memory_info) {
+                        total_size += blk.size;
+                    }
+                    proc_infos.push_back({pcb_ptr->pid, total_size});
+
+                    // 根据旧策略释放内存
+                    if (old_strategy == MemoryAllocationStrategy::CONTINUOUS) {
+                        for (const auto& blk : pcb_ptr->memory_info) {
+                            memory_manager->free(blk.base_address, blk.size);
+                        }
+                    } else {
+                        memory_manager->free_process_memory(pcb_ptr->pid);
+                    }
+                }
+
+                // Step 2: 切换策略
+                memory_manager->set_allocation_strategy(requested_strategy);
+
+                // Step 3: 为每个进程重新分配内存并更新 PCB
+                for (auto& info : proc_infos) {
+                    auto blk_opt = memory_manager->allocate_for_process(info.pid, info.size);
+                    if (!blk_opt) {
+                        res.status = 500;
+                        res.set_content(create_error_response("Failed to re-allocate memory for process " + std::to_string(info.pid)).dump(), "application/json; charset=utf-8");
+                        return;
+                    }
+
+                    auto pcb_ptr = process_manager->get_process(info.pid);
+                    if (pcb_ptr) {
+                        pcb_ptr->memory_info.clear();
+                        pcb_ptr->memory_info.push_back(*blk_opt);
+                        // 对于非连续分配策略，覆盖 base_address 为逻辑首地址
+                        if (requested_strategy != MemoryAllocationStrategy::CONTINUOUS) {
+                            uint64_t base_addr = memory_manager->get_process_base_address(info.pid);
+                            if (base_addr != UINT64_MAX) {
+                                pcb_ptr->memory_info[0].base_address = base_addr;
+                            }
+                        }
+                    }
+                }
+
+                json data = {
+                    {"old_strategy", static_cast<int>(old_strategy)},
+                    {"new_strategy", strategy_int}
+                };
                 res.set_content(create_success_response(data, "Memory allocation strategy updated successfully.").dump(), "application/json; charset=utf-8");
             } catch (const json::exception& e) {
                 res.status = 400;

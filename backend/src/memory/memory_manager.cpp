@@ -69,6 +69,20 @@ void MemoryManager::initialize_partitions() {
         partitions.emplace_back(base, 32 * 1024 * 1024);
     }
     
+    // 巨型分区: 64MB * 16 = 1024MB (覆盖 1.156GB - 2.18GB 区间)
+    for (int i = 0; i < 16; ++i) {
+        uint64_t base = 1156ULL * 1024 * 1024 + static_cast<uint64_t>(i) * 64ULL * 1024 * 1024;
+        partitions.emplace_back(base, 64ULL * 1024 * 1024);
+    }
+    
+    // 超巨型分区: 128MB * 8 = 1024MB (覆盖 2.18GB - 3.18GB)
+    for (int i = 0; i < 8; ++i) {
+        uint64_t base = 2180ULL * 1024 * 1024 + static_cast<uint64_t>(i) * 128ULL * 1024 * 1024;
+        partitions.emplace_back(base, 128ULL * 1024 * 1024);
+    }
+    
+    // 预留剩余空间为连续分配使用
+    
     std::cout << "Initialized " << partitions.size() << " memory partitions." << std::endl;
 }
 
@@ -292,10 +306,11 @@ uint64_t MemoryManager::get_process_base_address(ProcessID pid) const {
         }
         
         case MemoryAllocationStrategy::PAGED: {
-            // 分页方式下，进程看到的是虚拟地址，起始地址总是0
             auto it = page_tables.find(pid);
-            if (it != page_tables.end()) {
-                return 0; // 虚拟地址空间从0开始
+            if (it != page_tables.end() && !it->second.pages.empty()) {
+                // 返回首个物理页框的物理地址，方便前端显示
+                const auto& first_pte = it->second.pages.front();
+                return first_pte.frame_number * PAGE_SIZE;
             }
             break;
         }
