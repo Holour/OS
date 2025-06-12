@@ -10,15 +10,23 @@ std::optional<ProcessID> ProcessManager::create_process(uint64_t size) {
         return std::nullopt;
     }
 
-    auto block_opt = memory_manager.allocate(size);
+    ProcessID new_pid = next_pid++;
+    auto block_opt = memory_manager.allocate_for_process(new_pid, size);
     if (!block_opt) {
+        next_pid--; // 回退PID
         return std::nullopt; // Not enough memory
     }
 
     auto pcb = std::make_shared<PCB>();
-    pcb->pid = next_pid++;
+    pcb->pid = new_pid;
     pcb->state = ProcessState::READY;
     pcb->memory_info.push_back(block_opt.value());
+    
+    // 计算并设置进程起始地址
+    uint64_t base_address = memory_manager.get_process_base_address(new_pid);
+    if (base_address != UINT64_MAX) {
+        pcb->memory_info[0].base_address = base_address;
+    }
 
     all_processes[pcb->pid] = pcb;
     ready_queue.push(pcb);
@@ -34,9 +42,14 @@ bool ProcessManager::terminate_process(ProcessID pid) {
 
     auto pcb = it->second;
 
-    // Free all memory blocks associated with the process
-    for (const auto& block : pcb->memory_info) {
-        memory_manager.free(block.base_address, block.size);
+    // 尝试使用新的进程内存释放方法
+    bool memory_freed = memory_manager.free_process_memory(pid);
+    
+    // 如果新方法失败，使用传统方法（用于连续分配）
+    if (!memory_freed) {
+        for (const auto& block : pcb->memory_info) {
+            memory_manager.free(block.base_address, block.size);
+        }
     }
 
     // Remove from all_processes map

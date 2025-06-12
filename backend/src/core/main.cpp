@@ -70,15 +70,35 @@ void initialize_system_state() {
     fs_manager->create_file("/bin/game.pubt", 100 * 1024 * 1024, 755);      // 游戏程序，需要100MB
     fs_manager->create_file("/home/myapp.pubt", 24 * 1024 * 1024, 755);     // 用户自定义应用，需要24MB
 
-    // 2. 创建多个初始进程
-    auto p1 = process_manager->create_process(512 * 1024); // 512KB
-    if (p1) std::cout << "Created initial process 'idle_process' with PID: " << *p1 << std::endl;
-    
-    auto p2 = process_manager->create_process(1 * 1024 * 1024); // 1MB
-    if (p2) std::cout << "Created initial process 'system_logger' with PID: " << *p2 << std::endl;
+    // 2. 创建多个初始进程（模拟真实操作系统的各种进程）
+    std::vector<std::pair<std::string, uint64_t>> initial_processes = {
+        {"idle_process", 256 * 1024},        // 空闲进程: 256KB
+        {"kernel_worker", 512 * 1024},       // 内核工作进程: 512KB
+        {"system_logger", 1024 * 1024},      // 系统日志进程: 1MB
+        {"memory_manager", 768 * 1024},      // 内存管理进程: 768KB
+        {"device_driver", 2 * 1024 * 1024},  // 设备驱动进程: 2MB
+        {"shell", 4 * 1024 * 1024},          // 命令行解释器: 4MB
+        {"file_system", 3 * 1024 * 1024},    // 文件系统进程: 3MB
+        {"network_stack", 6 * 1024 * 1024},  // 网络协议栈: 6MB
+        {"gui_manager", 8 * 1024 * 1024},    // GUI管理器: 8MB
+        {"calculator", 10 * 1024 * 1024},    // 计算器应用: 10MB (对应.pubt文件)
+        {"notepad", 5 * 1024 * 1024},        // 记事本应用: 5MB (对应.pubt文件)
+        {"browser", 50 * 1024 * 1024},       // 浏览器应用: 50MB (对应.pubt文件)
+        {"background_service", 1536 * 1024}, // 后台服务: 1.5MB
+        {"antivirus", 12 * 1024 * 1024},     // 杀毒软件: 12MB
+        {"media_player", 15 * 1024 * 1024},  // 媒体播放器: 15MB
+    };
 
-    auto p3 = process_manager->create_process(4 * 1024 * 1024); // 4MB
-    if (p3) std::cout << "Created initial process 'shell' with PID: " << *p3 << std::endl;
+    std::cout << "Creating initial processes..." << std::endl;
+    for (const auto& [name, size] : initial_processes) {
+        auto pid = process_manager->create_process(size);
+        if (pid) {
+            std::cout << "✓ Created process '" << name << "' with PID: " << *pid 
+                      << " (Size: " << size / 1024 << " KB)" << std::endl;
+        } else {
+            std::cout << "✗ Failed to create process '" << name << "' (Size: " << size / 1024 << " KB)" << std::endl;
+        }
+    }
 
     std::cout << "Default system state initialized." << std::endl;
 }
@@ -231,12 +251,68 @@ int main(int argc, char* argv[]) {
             json data;
             data["total_memory"] = memory_manager->get_total_memory();
             data["used_memory"] = memory_manager->get_used_memory();
-            json free_blocks = json::array();
-            for (const auto& block : memory_manager->get_free_blocks()) {
-                free_blocks.push_back({{"base_address", block.base_address}, {"size", block.size}});
+            
+            // 根据当前分配策略返回不同的内存信息
+            auto strategy = memory_manager->get_allocation_strategy();
+            data["allocation_strategy"] = static_cast<int>(strategy);
+            
+            if (strategy == MemoryAllocationStrategy::CONTINUOUS) {
+                json free_blocks = json::array();
+                for (const auto& block : memory_manager->get_free_blocks()) {
+                    free_blocks.push_back({{"base_address", block.base_address}, {"size", block.size}});
+                }
+                data["free_blocks"] = free_blocks;
+            } else if (strategy == MemoryAllocationStrategy::PARTITIONED) {
+                json partitions = json::array();
+                for (const auto& partition : memory_manager->get_partitions()) {
+                    json p;
+                    p["base_address"] = partition.base_address;
+                    p["size"] = partition.size;
+                    p["is_free"] = partition.is_free;
+                    p["owner_pid"] = partition.owner_pid;
+                    partitions.push_back(p);
+                }
+                data["partitions"] = partitions;
+            } else {
+                // 分页策略，显示空闲块信息（简化显示）
+                json free_blocks = json::array();
+                for (const auto& block : memory_manager->get_free_blocks()) {
+                    free_blocks.push_back({{"base_address", block.base_address}, {"size", block.size}});
+                }
+                data["free_blocks"] = free_blocks;
             }
-            data["free_blocks"] = free_blocks;
+            
             res.set_content(create_success_response(data).dump(), "application/json; charset=utf-8");
+        });
+
+        svr.Put("/api/v1/memory/strategy", [&](const httplib::Request& req, httplib::Response& res) {
+            try {
+                auto body = json::parse(req.body);
+                if (!body.contains("strategy") || !body["strategy"].is_number()) {
+                    res.status = 400;
+                    res.set_content(create_error_response("Missing or invalid 'strategy' field.").dump(), "application/json; charset=utf-8");
+                    return;
+                }
+                
+                int strategy_int = body["strategy"];
+                if (strategy_int < 0 || strategy_int > 2) {
+                    res.status = 400;
+                    res.set_content(create_error_response("Invalid strategy value. Must be 0(CONTINUOUS), 1(PARTITIONED), or 2(PAGED).").dump(), "application/json; charset=utf-8");
+                    return;
+                }
+                
+                auto strategy = static_cast<MemoryAllocationStrategy>(strategy_int);
+                memory_manager->set_allocation_strategy(strategy);
+                
+                json data;
+                data["old_strategy"] = static_cast<int>(memory_manager->get_allocation_strategy());
+                data["new_strategy"] = strategy_int;
+                
+                res.set_content(create_success_response(data, "Memory allocation strategy updated successfully.").dump(), "application/json; charset=utf-8");
+            } catch (const json::exception& e) {
+                res.status = 400;
+                res.set_content(create_error_response("Invalid request body: " + std::string(e.what())).dump(), "application/json; charset=utf-8");
+            }
         });
 
         // --- 文件系统管理 API ---

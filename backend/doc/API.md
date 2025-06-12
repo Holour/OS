@@ -226,32 +226,111 @@
 **参数描述**
 *   **请求参数**: 无
 *   **响应参数**
-| 参数名        | 类型            | 描述                       |
-|---------------|-----------------|----------------------------|
-| total_memory  | integer(uint64) | 系统总内存大小（字节）     |
-| used_memory   | integer(uint64) | 已用内存大小（字节）       |
-| free_blocks   | array (object)  | 空闲内存块列表             |
-| » base_address| integer(uint64) | 空闲块起始地址             |
-| » size        | integer(uint64) | 空闲块大小（字节）         |
+| 参数名               | 类型            | 描述                                   |
+|---------------------|-----------------|----------------------------------------|
+| total_memory        | integer(uint64) | 系统总内存大小（字节）                 |
+| used_memory         | integer(uint64) | 已用内存大小（字节）                   |
+| allocation_strategy | integer         | 当前内存分配策略 (0=连续, 1=分区, 2=分页) |
+| free_blocks         | array (object)  | 空闲内存块列表（连续分配和分页时返回） |
+| » base_address      | integer(uint64) | 空闲块起始地址                         |
+| » size              | integer(uint64) | 空闲块大小（字节）                     |
+| partitions          | array (object)  | 分区信息列表（分区分配时返回）         |
+| » base_address      | integer(uint64) | 分区起始地址                           |
+| » size              | integer(uint64) | 分区大小（字节）                       |
+| » is_free           | boolean         | 分区是否空闲                           |
+| » owner_pid         | integer         | 分区拥有者进程ID（-1表示空闲）         |
 
 **请求示例**
 无
 
 **响应示例**
-*   成功：
+*   成功（连续分配策略）：
     ```json
     {
       "status": "success",
       "data": {
-        "total_memory": 268435456,
-        "used_memory": 10514432,
+        "total_memory": 4294967296,
+        "used_memory": 104857600,
+        "allocation_strategy": 0,
         "free_blocks": [
           {
-            "base_address": 10514432,
-            "size": 257921024
+            "base_address": 104857600,
+            "size": 4190109696
           }
         ]
       }
+    }
+    ```
+*   成功（分区分配策略）：
+    ```json
+    {
+      "status": "success",
+      "data": {
+        "total_memory": 4294967296,
+        "used_memory": 1073741824,
+        "allocation_strategy": 1,
+        "partitions": [
+          {
+            "base_address": 0,
+            "size": 262144,
+            "is_free": false,
+            "owner_pid": 1
+          },
+          {
+            "base_address": 262144,
+            "size": 262144,
+            "is_free": true,
+            "owner_pid": -1
+          }
+        ]
+      }
+    }
+    ```
+
+#### 3.2 设置内存分配策略
+更改系统当前使用的内存分配策略。
+
+**接口地址**
+`PUT http://localhost:8080/api/v1/memory/strategy`
+
+**参数描述**
+*   **请求参数**
+
+| 参数名    | 类型    | 是否必须 | 描述                                           |
+|-----------|---------|----------|------------------------------------------------|
+| strategy  | integer | 是       | 内存分配策略 (0=连续分配, 1=分区分配, 2=分页分配) |
+
+*   **响应参数**
+
+| 参数名        | 类型    | 描述           |
+|---------------|---------|----------------|
+| old_strategy  | integer | 原分配策略     |
+| new_strategy  | integer | 新分配策略     |
+
+**请求示例**
+```json
+{
+  "strategy": 1
+}
+```
+
+**响应示例**
+*   成功 (200 OK):
+    ```json
+    {
+      "status": "success",
+      "message": "Memory allocation strategy updated successfully.",
+      "data": {
+        "old_strategy": 0,
+        "new_strategy": 1
+      }
+    }
+    ```
+*   失败 (400 Bad Request):
+    ```json
+    {
+      "status": "error",
+      "message": "Invalid strategy value. Must be 0(CONTINUOUS), 1(PARTITIONED), or 2(PAGED)."
     }
     ```
 ### **4. 文件系统 (File System)**

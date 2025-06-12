@@ -38,16 +38,18 @@ export const memoryAPI = {
   // 获取内存状态
   getStatus: () => apiClient.get('/memory/status'),
 
-  // 分配内存
-  allocate: (pid: number, size: number) =>
-    apiClient.post('/memory/allocate', { pid, size }),
+  // 设置内存分配策略 - 新增功能
+  setStrategy: (strategy: number) =>
+    apiClient.put('/memory/strategy', { strategy }),
 
-  // 释放内存
-  deallocate: (pid: number) =>
-    apiClient.delete(`/memory/deallocate/${pid}`),
+  // 注意：以下API在后端中不存在，仅保留注释
+  // allocate: (pid: number, size: number) =>
+  //   apiClient.post('/memory/allocate', { pid, size }),
 
-  // 获取内存布局
-  getLayout: () => apiClient.get('/memory/layout'),
+  // deallocate: (pid: number) =>
+  //   apiClient.delete(`/memory/deallocate/${pid}`),
+
+  // getLayout: () => apiClient.get('/memory/layout'),
 };
 
 // 文件系统 API

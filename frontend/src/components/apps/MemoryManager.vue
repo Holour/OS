@@ -5,40 +5,47 @@ import { memoryAPI, processAPI } from '@/services/api';
 interface MemoryBlock {
   base_address: number;
   size: number;
-  owner_pid?: number;
+}
+
+interface PartitionInfo {
+  base_address: number;
+  size: number;
   is_free: boolean;
+  owner_pid: number;
 }
 
 interface MemoryStatus {
-  total_size: number;
-  used_size: number;
-  free_size: number;
-  fragmentation: number;
+  total_memory: number;
+  used_memory: number;
+  allocation_strategy: number;
+  free_blocks?: MemoryBlock[];
+  partitions?: PartitionInfo[];
 }
 
 const memoryStatus = ref<MemoryStatus | null>(null);
-const memoryLayout = ref<MemoryBlock[]>([]);
 const processes = ref<any[]>([]);
 const isLoading = ref(true);
 const error = ref<string | null>(null);
-const selectedPid = ref<number | null>(null);
-const allocationSize = ref(1024);
+const selectedStrategy = ref(0);  // 当前选择的内存分配策略
 let intervalId: number;
+
+// 内存分配策略映射
+const strategyNames = {
+  0: '连续分配',
+  1: '分区分配',
+  2: '分页分配'
+};
 
 const fetchMemoryData = async () => {
   try {
-    const [statusRes, layoutRes, processRes] = await Promise.all([
+    const [statusRes, processRes] = await Promise.all([
       memoryAPI.getStatus(),
-      memoryAPI.getLayout(),
       processAPI.getProcesses()
     ]);
 
     if (statusRes.data.status === 'success') {
       memoryStatus.value = statusRes.data.data;
-    }
-
-    if (layoutRes.data.status === 'success') {
-      memoryLayout.value = layoutRes.data.data || [];
+      selectedStrategy.value = statusRes.data.data.allocation_strategy;
     }
 
     if (processRes.data.status === 'success') {
@@ -53,36 +60,26 @@ const fetchMemoryData = async () => {
   }
 };
 
-const allocateMemory = async () => {
-  if (!selectedPid.value || allocationSize.value <= 0) {
-    alert('请选择进程并输入有效的内存大小');
-    return;
-  }
-
+// 设置内存分配策略
+const setMemoryStrategy = async () => {
   try {
-    await memoryAPI.allocate(selectedPid.value, allocationSize.value);
-    fetchMemoryData();
-    alert('内存分配成功！');
+    const response = await memoryAPI.setStrategy(selectedStrategy.value);
+    if (response.data.status === 'success') {
+      alert(`内存分配策略已更改为: ${strategyNames[selectedStrategy.value as keyof typeof strategyNames]}`);
+      await fetchMemoryData(); // 重新获取数据
+    }
   } catch (err: any) {
-    error.value = err.message || 'Failed to allocate memory';
+    error.value = err.message || 'Failed to set memory strategy';
+    alert('设置内存分配策略失败: ' + error.value);
   }
 };
 
-const deallocateMemory = async (pid: number) => {
-  if (!confirm(`确定要释放进程 ${pid} 的所有内存吗？`)) return;
-
-  try {
-    await memoryAPI.deallocate(pid);
-    fetchMemoryData();
-    alert('内存释放成功！');
-  } catch (err: any) {
-    error.value = err.message || 'Failed to deallocate memory';
+const getBlockColor = (block: MemoryBlock | PartitionInfo, isPid: boolean = false) => {
+  if ('is_free' in block && block.is_free) return '#e8f5e8';
+  if (isPid && 'owner_pid' in block) {
+    return `hsl(${(block.owner_pid || 0) * 50 % 360}, 70%, 80%)`;
   }
-};
-
-const getBlockColor = (block: MemoryBlock) => {
-  if (block.is_free) return '#e8f5e8';
-  return `hsl(${(block.owner_pid || 0) * 50 % 360}, 70%, 80%)`;
+  return '#b8e6b8'; // 默认占用颜色
 };
 
 const formatSize = (bytes: number) => {
@@ -119,19 +116,19 @@ onUnmounted(() => {
         <div class="status-grid">
           <div class="status-item">
             <span class="label">总内存:</span>
-            <span class="value">{{ formatSize(memoryStatus.total_size) }}</span>
+            <span class="value">{{ formatSize(memoryStatus.total_memory) }}</span>
           </div>
           <div class="status-item">
             <span class="label">已使用:</span>
-            <span class="value">{{ formatSize(memoryStatus.used_size) }}</span>
+            <span class="value">{{ formatSize(memoryStatus.used_memory) }}</span>
           </div>
           <div class="status-item">
             <span class="label">空闲:</span>
-            <span class="value">{{ formatSize(memoryStatus.free_size) }}</span>
+            <span class="value">{{ formatSize(memoryStatus.total_memory - memoryStatus.used_memory) }}</span>
           </div>
           <div class="status-item">
-            <span class="label">碎片化:</span>
-            <span class="value">{{ (memoryStatus.fragmentation * 100).toFixed(1) }}%</span>
+            <span class="label">当前策略:</span>
+            <span class="value">{{ strategyNames[memoryStatus.allocation_strategy as keyof typeof strategyNames] }}</span>
           </div>
         </div>
 
@@ -139,58 +136,67 @@ onUnmounted(() => {
         <div class="memory-bar">
           <div
             class="memory-used"
-            :style="{ width: (memoryStatus.used_size / memoryStatus.total_size * 100) + '%' }"
+            :style="{ width: (memoryStatus.used_memory / memoryStatus.total_memory * 100) + '%' }"
           ></div>
         </div>
       </div>
 
-      <!-- 内存分配控制 -->
-      <div class="allocation-control">
-        <h4>内存分配</h4>
+      <!-- 内存分配策略控制 -->
+      <div class="strategy-control">
+        <h4>内存分配策略</h4>
         <div class="control-row">
-          <select v-model="selectedPid">
-            <option :value="null">选择进程</option>
-            <option v-for="proc in processes" :key="proc.pid" :value="proc.pid">
-              PID: {{ proc.pid }} ({{ proc.state }})
-            </option>
+          <select v-model="selectedStrategy">
+            <option :value="0">连续分配</option>
+            <option :value="1">分区分配</option>
+            <option :value="2">分页分配</option>
           </select>
-          <input
-            v-model.number="allocationSize"
-            type="number"
-            placeholder="内存大小 (bytes)"
-            min="1"
-          />
-          <button @click="allocateMemory">分配内存</button>
+          <button @click="setMemoryStrategy">更改策略</button>
         </div>
       </div>
 
       <!-- 内存布局可视化 -->
       <div class="memory-layout">
-        <h4>内存布局</h4>
-        <div class="layout-container">
-          <div
-            v-for="(block, index) in memoryLayout"
-            :key="index"
-            class="memory-block"
-            :style="{
-              backgroundColor: getBlockColor(block),
-              height: Math.max(20, (block.size / 1024)) + 'px',
-              minHeight: '20px'
-            }"
-            :title="`地址: 0x${block.base_address.toString(16)}\n大小: ${formatSize(block.size)}\n${block.is_free ? '空闲' : `进程 ${block.owner_pid}`}`"
-          >
-            <div class="block-info">
-              <span class="address">0x{{ block.base_address.toString(16) }}</span>
-              <span class="size">{{ formatSize(block.size) }}</span>
-              <span v-if="!block.is_free" class="owner">PID: {{ block.owner_pid }}</span>
-              <span v-if="block.is_free" class="free">空闲</span>
-              <button
-                v-if="!block.is_free && block.owner_pid"
-                @click="deallocateMemory(block.owner_pid)"
-                class="deallocate-btn"
-              >
-                释放
-              </button>
+        <h4>内存布局 ({{ strategyNames[memoryStatus?.allocation_strategy as keyof typeof strategyNames] }})</h4>
+
+        <!-- 连续分配和分页分配：显示空闲块 -->
+        <div v-if="memoryStatus?.free_blocks && (memoryStatus.allocation_strategy === 0 || memoryStatus.allocation_strategy === 2)" class="free-blocks">
+          <h5>空闲内存块</h5>
+          <div class="blocks-container">
+            <div
+              v-for="(block, index) in memoryStatus.free_blocks"
+              :key="index"
+              class="memory-block free-block"
+              :title="`地址: 0x${block.base_address.toString(16)}\n大小: ${formatSize(block.size)}\n状态: 空闲`"
+            >
+              <div class="block-info">
+                <span class="address">0x{{ block.base_address.toString(16) }}</span>
+                <span class="size">{{ formatSize(block.size) }}</span>
+                <span class="status">空闲</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 分区分配：显示分区信息 -->
+        <div v-if="memoryStatus?.partitions && memoryStatus.allocation_strategy === 1" class="partitions">
+          <h5>内存分区</h5>
+          <div class="blocks-container">
+            <div
+              v-for="(partition, index) in memoryStatus.partitions"
+              :key="index"
+              class="memory-block"
+              :class="{ 'free-block': partition.is_free, 'used-block': !partition.is_free }"
+              :style="{
+                backgroundColor: getBlockColor(partition, true)
+              }"
+              :title="`地址: 0x${partition.base_address.toString(16)}\n大小: ${formatSize(partition.size)}\n状态: ${partition.is_free ? '空闲' : '占用'}\n${!partition.is_free ? `进程PID: ${partition.owner_pid}` : ''}`"
+            >
+              <div class="block-info">
+                <span class="address">0x{{ partition.base_address.toString(16) }}</span>
+                <span class="size">{{ formatSize(partition.size) }}</span>
+                <span v-if="partition.is_free" class="status">空闲</span>
+                <span v-else class="owner">PID: {{ partition.owner_pid }}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -198,14 +204,22 @@ onUnmounted(() => {
 
       <!-- 进程内存使用情况 -->
       <div class="process-memory">
-        <h4>进程内存使用</h4>
-        <div class="process-list">
+        <h4>进程内存占用</h4>
+        <div v-if="processes.length === 0" class="no-processes">
+          暂无进程
+        </div>
+        <div v-else class="process-list">
           <div v-for="proc in processes" :key="proc.pid" class="process-item">
-            <span class="pid">PID: {{ proc.pid }}</span>
-            <span class="memory-usage">
-              {{ formatSize(proc.memory_info?.reduce((sum: number, block: any) => sum + block.size, 0) || 0) }}
-            </span>
-            <button @click="deallocateMemory(proc.pid)" class="release-btn">释放内存</button>
+            <div class="process-info">
+              <span class="pid">PID: {{ proc.pid }}</span>
+              <span class="state">状态: {{ proc.state }}</span>
+            </div>
+            <div class="memory-blocks">
+              <div v-for="(block, index) in proc.memory_info" :key="index" class="memory-block-item">
+                <span class="address">0x{{ block.base_address.toString(16).toUpperCase() }}</span>
+                <span class="size">{{ formatSize(block.size) }}</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -295,10 +309,16 @@ onUnmounted(() => {
   transition: width 0.3s;
 }
 
-.allocation-control {
+.strategy-control {
   border: 1px solid #ddd;
   border-radius: 5px;
   padding: 10px;
+  background-color: #f8f9fa;
+}
+
+.strategy-control h4 {
+  margin: 0 0 10px 0;
+  color: #495057;
 }
 
 .control-row {
@@ -314,12 +334,17 @@ onUnmounted(() => {
 }
 
 .control-row button {
-  background-color: #28a745;
+  background-color: #007bff;
   color: white;
   border: none;
   padding: 5px 10px;
   cursor: pointer;
   font-size: 12px;
+  border-radius: 3px;
+}
+
+.control-row button:hover {
+  background-color: #0056b3;
 }
 
 .memory-layout {
@@ -328,12 +353,28 @@ onUnmounted(() => {
   padding: 10px;
 }
 
-.layout-container {
+.blocks-container {
   display: flex;
   flex-wrap: wrap;
-  gap: 2px;
-  max-height: 200px;
+  gap: 8px;
+  max-height: 300px;
   overflow-y: auto;
+  margin-top: 10px;
+}
+
+.free-blocks h5, .partitions h5 {
+  margin: 10px 0 5px 0;
+  color: #495057;
+  font-size: 14px;
+}
+
+.free-block {
+  background-color: #d4edda !important;
+  border-color: #c3e6cb !important;
+}
+
+.used-block {
+  border-color: #f5c6cb !important;
 }
 
 .memory-block {
@@ -411,12 +452,44 @@ onUnmounted(() => {
   color: #666;
 }
 
-.release-btn {
-  background-color: #dc3545;
-  color: white;
-  border: none;
-  padding: 3px 6px;
+.no-processes {
+  text-align: center;
+  color: #6c757d;
+  padding: 20px;
+  font-style: italic;
+}
+
+.process-info {
+  display: flex;
+  gap: 15px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.memory-blocks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.memory-block-item {
+  background-color: #e9ecef;
+  border: 1px solid #dee2e6;
+  border-radius: 3px;
+  padding: 4px 8px;
   font-size: 10px;
-  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.memory-block-item .address {
+  font-family: 'Courier New', monospace;
+  font-weight: bold;
+  color: #007bff;
+}
+
+.memory-block-item .size {
+  color: #6c757d;
 }
 </style>

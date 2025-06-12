@@ -120,6 +120,7 @@ onUnmounted(() => {
               <th>进程名</th>
               <th>状态</th>
               <th>程序计数器</th>
+              <th>内存首地址</th>
               <th>内存大小 (KB)</th>
               <th>操作</th>
             </tr>
@@ -130,6 +131,12 @@ onUnmounted(() => {
               <td>{{ proc.name || 'N/A' }}</td>
               <td>{{ proc.state }}</td>
               <td>{{ proc.program_counter }}</td>
+              <td>
+                <span v-if="proc.memory_info.length > 0" class="memory-address">
+                  0x{{ proc.memory_info[0].base_address.toString(16).toUpperCase() }}
+                </span>
+                <span v-else class="no-memory">无内存</span>
+              </td>
               <td>{{ (proc.memory_info.reduce((sum: number, block: MemoryBlock) => sum + block.size, 0) / 1024).toFixed(2) }}</td>
               <td>
                 <button @click="terminateProcess(proc.pid)" class="terminate-btn">终止</button>
@@ -290,5 +297,20 @@ thead {
 
 .create-form button:hover {
   background-color: #218838;
+}
+
+.memory-address {
+  font-family: 'Courier New', monospace;
+  font-weight: bold;
+  color: #007bff;
+  background-color: #f8f9fa;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-size: 10px;
+}
+
+.no-memory {
+  color: #6c757d;
+  font-style: italic;
 }
 </style>

@@ -30,4 +30,15 @@ enum class InterruptType {
     SYSTEM_CALL
 };
 
+// 内存分配策略
+enum class MemoryAllocationStrategy {
+    CONTINUOUS,     // 连续分配
+    PARTITIONED,    // 分区分配
+    PAGED          // 分页分配
+};
+
+// 分页相关常量
+const uint64_t PAGE_SIZE = 4096;  // 4KB页面大小
+const uint64_t TOTAL_PAGES = MEMORY_SIZE / PAGE_SIZE;
+
 #endif // COMMON_H 
