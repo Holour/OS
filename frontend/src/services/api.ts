@@ -58,9 +58,16 @@ export const filesystemAPI = {
   getStatus: () => apiClient.get('/filesystem/status'),
 
   // 列出目录内容
+  // 后端路由形式为 /filesystem/directory/{path} ，当 path 为根目录时可以省略；
+  // 其余情况需去掉开头的多个 '/' 并做 URL 编码，防止出现双斜杠以及特殊字符问题。
   listDirectory: (path: string = '/') => {
-    const cleanPath = path === '/' ? '' : path;
-    return apiClient.get(`/filesystem/directory/${cleanPath}`);
+    if (path === '/' || path === '') {
+      return apiClient.get('/filesystem/directory/');
+    }
+
+    const trimmed = path.replace(/^\/+/, '');
+    const encoded = encodeURIComponent(trimmed);
+    return apiClient.get(`/filesystem/directory/${encoded}`);
   },
 
   // 创建文件（支持模拟大小）
