@@ -712,8 +712,7 @@ int main(int argc, char* argv[]) {
             for (const auto& device : all_devices) {
                 json d;
                 d["device_id"] = device.id;
-                // According to API.md, name is just a string. Let's make it unique.
-                d["name"] = device.type + std::to_string(device.id); 
+                d["name"] = device.name;
                 d["type"] = device.type;
                 d["status"] = device.is_busy ? "BUSY" : "IDLE";
                 if (device.user_pid.has_value()) {
@@ -726,30 +725,35 @@ int main(int argc, char* argv[]) {
             res.set_content(create_success_response(data).dump(), "application/json; charset=utf-8");
         });
 
+        // 申请设备（通过设备ID）
         svr.Post("/api/v1/devices/request", [&](const httplib::Request& req, httplib::Response& res) {
             try {
                 auto body = json::parse(req.body);
-                std::string device_type = body.at("device_type");
-                
-                // For now, we'll use a dummy PID 0. In a real scenario, this would come from the authenticated process.
-                ProcessID pid = 0; 
-                auto device_id_opt = device_manager->request_device(device_type, pid);
 
-                if (device_id_opt) {
+                if (!body.contains("device_id") || !body.contains("process_id")) {
+                    res.status = 400;
+                    res.set_content(create_error_response("Missing 'device_id' or 'process_id' in request body").dump(), "application/json; charset=utf-8");
+                    return;
+                }
+
+                int device_id = body.at("device_id").get<int>();
+                ProcessID pid = body.at("process_id").get<ProcessID>();
+
+                auto device_opt = device_manager->acquire_device(device_id, pid);
+
+                if (device_opt) {
+                    const auto& device = *device_opt;
                     json data;
-                    data["device_id"] = *device_id_opt;
-                    // Find device to get its name
-                     for (const auto& device : device_manager->get_all_devices()) {
-                        if (device.id == *device_id_opt) {
-                            data["name"] = device.type + std::to_string(device.id);
-                            break;
-                        }
-                    }
+                    data["device_id"] = device.id;
+                    data["name"] = device.name;
+                    data["type"] = device.type;
+                    data["status"] = "BUSY";
+                    data["current_user"] = pid;
                     res.status = 200;
                     res.set_content(create_success_response(data).dump(), "application/json; charset=utf-8");
                 } else {
                     res.status = 400;
-                    res.set_content(create_error_response("No available device of type " + device_type).dump(), "application/json; charset=utf-8");
+                    res.set_content(create_error_response("Device is busy or not found").dump(), "application/json; charset=utf-8");
                 }
             } catch (const json::exception& e) {
                 res.status = 400;
@@ -757,22 +761,49 @@ int main(int argc, char* argv[]) {
             }
         });
 
+        // 释放设备
         svr.Post(R"(/api/v1/devices/(\d+)/release)", [&](const httplib::Request& req, httplib::Response& res) {
             int device_id = std::stoi(req.matches[1].str());
-            ProcessID pid = 0; // Dummy PID
 
-            if (device_manager->release_device(device_id, pid)) {
-                res.status = 200;
-                res.set_content(create_success_response({}, "Device released successfully").dump(), "application/json; charset=utf-8");
-            } else {
+            try {
+                auto body = json::parse(req.body);
+                if (!body.contains("process_id")) {
+                    res.status = 400;
+                    res.set_content(create_error_response("Missing 'process_id' in request body").dump(), "application/json; charset=utf-8");
+                    return;
+                }
+                ProcessID pid = body.at("process_id").get<ProcessID>();
+
+                if (device_manager->release_device(device_id, pid)) {
+                    res.status = 200;
+                    res.set_content(create_success_response({}, "Device released successfully").dump(), "application/json; charset=utf-8");
+                } else {
+                    res.status = 400;
+                    res.set_content(create_error_response("Device is not in use, not owned by this process, or not found").dump(), "application/json; charset=utf-8");
+                }
+            } catch (const json::exception& e) {
                 res.status = 400;
-                res.set_content(create_error_response("Device is not in use or not found").dump(), "application/json; charset=utf-8");
+                res.set_content(create_error_response("Invalid request body: " + std::string(e.what())).dump(), "application/json; charset=utf-8");
             }
         });
 
+        // 删除设备
+        svr.Delete(R"(/api/v1/devices/(\d+))", [&](const httplib::Request& req, httplib::Response& res) {
+            int device_id = std::stoi(req.matches[1].str());
+
+            if (device_manager->delete_device(device_id)) {
+                res.status = 200;
+                res.set_content(create_success_response({}, "Device deleted successfully").dump(), "application/json; charset=utf-8");
+            } else {
+                res.status = 400;
+                res.set_content(create_error_response("Device not found or is busy").dump(), "application/json; charset=utf-8");
+            }
+        });
+
+        // 设备操作（保持之前的简化实现）
         svr.Post(R"(/api/v1/devices/(\d+)/operation)", [&](const httplib::Request& req, httplib::Response& res) {
             int device_id = std::stoi(req.matches[1].str());
-            
+
             // Check if device exists
             bool found = false;
             for (const auto& device : device_manager->get_all_devices()) {

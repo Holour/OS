@@ -13,6 +13,7 @@ using json = nlohmann::json;
 struct Device {
     int id;
     std::string type;
+    std::string name;
     bool is_busy = false;
     std::optional<ProcessID> user_pid; // Which process is using the device
 };
@@ -35,9 +36,17 @@ public:
     // Get the current state of all devices
     std::vector<Device> get_all_devices() const;
 
+    // Acquire a specific device by device ID for a process
+    // Returns the device object if successful, std::nullopt otherwise
+    std::optional<Device> acquire_device(int device_id, ProcessID pid);
+
+    // Delete a device from the system. Only allowed when the device is IDLE
+    bool delete_device(int device_id);
+
 private:
     std::map<std::string, std::vector<Device>> devices;
     int next_device_id = 0;
 
     void add_device_type(const std::string& type, int count);
+    void add_device(const std::string& type, const std::string& name);
 }; 

@@ -754,8 +754,8 @@
     }
     ```
 
-#### 5.2 申请设备
-请求分配一个指定类型的设备。
+#### 5.2 申请设备（更新）
+请求分配指定 ID 的设备给某个进程。
 
 **接口地址**
 `POST http://localhost:8080/api/v1/devices/request`
@@ -765,21 +765,24 @@
 
 | 参数名        | 类型    | 是否必须 | 描述           |
 |---------------|---------|----------|----------------|
-| device_type   | string  | 是       | 设备类型       |
-| timeout       | integer | 否       | 等待超时时间（毫秒） |
+| device_id     | integer | 是       | 要申请的设备 ID |
+| process_id    | integer | 是       | 发起申请的进程 ID |
 
 *   **响应参数**
 
 | 参数名        | 类型    | 描述           |
 |---------------|---------|----------------|
-| device_id     | integer | 分配的设备ID   |
+| device_id     | integer | 设备 ID        |
 | name          | string  | 设备名称       |
+| type          | string  | 设备类型       |
+| status        | string  | 设备状态 (BUSY)|
+| current_user  | integer | 当前占用该设备的进程 ID |
 
 **请求示例**
 ```json
 {
-  "device_type": "PRINTER",
-  "timeout": 5000
+  "device_id": 1,
+  "process_id": 101
 }
 ```
 
@@ -790,7 +793,10 @@
       "status": "success",
       "data": {
         "device_id": 1,
-        "name": "printer1"
+        "name": "printer1",
+        "type": "PRINTER",
+        "status": "BUSY",
+        "current_user": 101
       }
     }
     ```
@@ -798,27 +804,35 @@
     ```json
     {
       "status": "error",
-      "message": "No available device of type PRINTER"
+      "message": "Device is busy or not found"
     }
     ```
 
-#### 5.3 释放设备
+#### 5.3 释放设备（更新）
 释放一个正在使用的设备。
 
 **接口地址**
 `POST http://localhost:8080/api/v1/devices/{device_id}/release`
 
 **参数描述**
-*   **URL参数**
+*   **URL 参数**
 | 参数名    | 类型    | 描述           |
 |-----------|---------|----------------|
-| device_id | integer | 设备ID         |
+| device_id | integer | 设备 ID        |
 
-*   **请求参数**: 无
+*   **请求参数**
+| 参数名     | 类型    | 是否必须 | 描述                 |
+|------------|---------|----------|----------------------|
+| process_id | integer | 是       | 释放设备的进程 ID     |
+
 *   **响应参数**: 无
 
 **请求示例**
-无
+```json
+{
+  "process_id": 101
+}
+```
 
 **响应示例**
 *   成功 (200 OK):
@@ -832,11 +846,41 @@
     ```json
     {
       "status": "error",
-      "message": "Device is not in use"
+      "message": "Device is not in use, not owned by this process, or not found"
     }
     ```
 
-#### 5.4 设备操作
+#### 5.4 删除设备（新增）
+删除一个空闲设备。
+
+**接口地址**
+`DELETE http://localhost:8080/api/v1/devices/{device_id}`
+
+**参数描述**
+*   **URL 参数**
+| 参数名    | 类型    | 描述           |
+|-----------|---------|----------------|
+| device_id | integer | 设备 ID        |
+
+*   **响应参数**: 无
+
+**响应示例**
+*   成功 (200 OK):
+    ```json
+    {
+      "status": "success",
+      "message": "Device deleted successfully"
+    }
+    ```
+*   失败 (400 Bad Request / 404 Not Found):
+    ```json
+    {
+      "status": "error",
+      "message": "Device not found or is busy"
+    }
+    ```
+
+#### 5.5 设备操作
 对设备执行特定操作。
 
 **接口地址**

@@ -31,7 +31,8 @@ export const useWindowsStore = defineStore('windows', {
       'ProcessManager': { width: 1200, height: 750 },
       'Terminal': { width: 800, height: 500 },
       'SystemControl': { width: 700, height: 500 },
-      'MemoryManager': { width: 900, height: 600 }
+      'MemoryManager': { width: 900, height: 600 },
+      'MusicPlayer': { width: 1000, height: 700 }
     }),
 
     defaultSize: () => ({ width: 640, height: 480 })

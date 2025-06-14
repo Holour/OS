@@ -110,6 +110,13 @@ const getIcon = () => {
   }
 
   const ext = props.file.name.split('.').pop()?.toLowerCase();
+  const fileName = props.file.name.toLowerCase();
+
+  // 特殊处理音乐播放器
+  if (ext === 'pubt' && (fileName.includes('音乐') || fileName.includes('music'))) {
+    return '🎵';
+  }
+
   switch (ext) {
     case 'txt': return '📄';
     case 'log': return '📋';

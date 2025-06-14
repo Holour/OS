@@ -139,18 +139,24 @@ export const deviceAPI = {
   // 获取所有设备
   getDevices: () => apiClient.get('/devices'),
 
-  // 注意：后端没有实现获取设备状态的API
-  // getDeviceStatus: (deviceId: string) => apiClient.get(`/devices/${deviceId}/status`),
+  // 设备请求（更新为新的API格式）
+  requestDevice: (deviceId: number, processId: number) =>
+    apiClient.post('/devices/request', {
+      device_id: deviceId,
+      process_id: processId
+    }),
 
-  // 设备请求（修正为后端实际端点）
-  requestDevice: (deviceType: string) =>
-    apiClient.post('/devices/request', { device_type: deviceType }),
+  // 设备释放（更新为新的API格式）
+  releaseDevice: (deviceId: number, processId: number) =>
+    apiClient.post(`/devices/${deviceId}/release`, {
+      process_id: processId
+    }),
 
-  // 设备释放（修正为后端实际端点）
-  releaseDevice: (deviceId: number) =>
-    apiClient.post(`/devices/${deviceId}/release`),
+  // 删除设备（新增）
+  deleteDevice: (deviceId: number) =>
+    apiClient.delete(`/devices/${deviceId}`),
 
-  // 设备操作（修正为后端实际端点）
+  // 设备操作
   deviceOperation: (deviceId: number, operation: string = 'TEST', params: any = {}) =>
     apiClient.post(`/devices/${deviceId}/operation`, {
       operation,

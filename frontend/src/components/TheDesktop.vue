@@ -36,6 +36,7 @@ const componentMap: Record<string, any> = {
   DeviceManager: defineAsyncComponent(() => import('./apps/DeviceManager.vue')),
   SystemControl: defineAsyncComponent(() => import('./apps/SystemControl.vue')),
   FileAddressViewer: defineAsyncComponent(() => import('./apps/FileAddressViewer.vue')),
+  MusicPlayer: defineAsyncComponent(() => import('./apps/MusicPlayer.vue')),
 };
 
 // 加载桌面文件（根目录）
@@ -107,8 +108,16 @@ const handlePubtFile = async (file: FileItem) => {
       // 创建进程，使用文件名（去掉.pubt扩展名）作为进程名
       const processName = file.name.replace(/\.pubt$/, '') || 'unnamed';
 
-      const processResult = await processAPI.createProcess(processName, memorySize);
-      console.log(`程序 "${processName}" 已启动，进程ID: ${processResult.data.pid}，分配内存: ${formatBytes(memorySize)}`);
+      // 根据程序名称启动对应的应用
+      if (processName.toLowerCase().includes('音乐') || processName.toLowerCase().includes('music')) {
+        // 启动音乐播放器
+        windowsStore.openWindow('music-player', '在线音乐', 'MusicPlayer', {}, { center: true });
+        console.log(`音乐播放器 "${processName}" 已启动`);
+      } else {
+        // 其他应用只创建进程
+        const processResult = await processAPI.createProcess(memorySize, 1000, 5);
+        console.log(`程序 "${processName}" 已启动，进程ID: ${processResult.data.data.pid}，分配内存: ${formatBytes(memorySize)}`);
+      }
     } else {
       throw new Error('无法读取.pubt文件信息');
     }
@@ -348,9 +357,29 @@ const handleOpenFileAddress = (filePath: string) => {
   );
 };
 
+// 创建音乐播放器桌面快捷方式
+const createMusicPlayerShortcut = async () => {
+  try {
+    // 检查是否已经存在音乐播放器快捷方式
+    const existingFile = desktopFiles.value.find(file =>
+      file.name.includes('音乐') || file.name.toLowerCase().includes('music')
+    );
+
+    if (!existingFile) {
+      // 创建音乐播放器快捷方式
+      await filesystemAPI.createFile('在线音乐.pubt', 4096, 0o755); // 4KB, 可执行权限
+      console.log('音乐播放器桌面快捷方式已创建');
+      await loadDesktopFiles(); // 重新加载桌面文件
+    }
+  } catch (err) {
+    console.error('创建音乐播放器快捷方式失败:', err);
+  }
+};
+
 onMounted(() => {
   loadDesktopFiles();
   loadIconPositions();
+  createMusicPlayerShortcut(); // 创建音乐播放器快捷方式
   // 点击其他地方隐藏右键菜单
   document.addEventListener('click', hideAllContextMenus);
 });

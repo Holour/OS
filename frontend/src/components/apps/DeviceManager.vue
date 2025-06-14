@@ -35,6 +35,7 @@ const autoRefresh = ref(true);
 const refreshInterval = ref<number | null>(null);
 const selectedOperation = ref('');
 const selectedDeviceType = ref('');
+const selectedProcessId = ref<number | null>(null);
 
 // 设备操作历史
 const operationHistory = ref<DeviceOperation[]>([]);
@@ -170,38 +171,174 @@ const getProcessName = (pid: number | null): string => {
 };
 
 // 设备操作：请求设备
-const requestDevice = async (deviceType: string) => {
+const requestDevice = async (deviceId: number, processId: number) => {
   try {
-    const response = await deviceAPI.requestDevice(deviceType);
+    const response = await deviceAPI.requestDevice(deviceId, processId);
     if (response.data.status === 'success') {
       const deviceInfo = response.data.data;
       addOperationHistory(
         deviceInfo.device_id,
         'REQUEST',
         'success',
-        `成功请求设备 ${deviceInfo.name}`
+        `进程 ${processId} 成功请求设备 ${deviceInfo.name}`,
+        processId
       );
       await fetchDevices();
       return deviceInfo;
     }
   } catch (error: any) {
     const errorMsg = error.response?.data?.message || error.message;
-    addOperationHistory(0, 'REQUEST', 'error', `请求设备失败: ${errorMsg}`);
+    addOperationHistory(deviceId, 'REQUEST', 'error', `请求设备失败: ${errorMsg}`, processId);
     throw error;
   }
 };
 
 // 设备操作：释放设备
-const releaseDevice = async (deviceId: number) => {
+const releaseDevice = async (deviceId: number, processId: number) => {
   try {
-    const response = await deviceAPI.releaseDevice(deviceId);
+    const response = await deviceAPI.releaseDevice(deviceId, processId);
     if (response.data.status === 'success') {
-      addOperationHistory(deviceId, 'RELEASE', 'success', '设备释放成功');
+      addOperationHistory(deviceId, 'RELEASE', 'success', `进程 ${processId} 释放设备成功`, processId);
       await fetchDevices();
     }
   } catch (error: any) {
     const errorMsg = error.response?.data?.message || error.message;
     addOperationHistory(deviceId, 'RELEASE', 'error', `释放设备失败: ${errorMsg}`);
+    throw error;
+  }
+};
+
+// 设备操作：删除设备
+const deleteDevice = async (deviceId: number) => {
+  try {
+    const response = await deviceAPI.deleteDevice(deviceId);
+    if (response.data.status === 'success') {
+      addOperationHistory(
+        deviceId,
+        'DELETE',
+        'success',
+        '设备删除成功'
+      );
+      await fetchDevices();
+      // 如果删除的是当前选中的设备，清空选择
+      if (selectedDevice.value?.device_id === deviceId) {
+        selectedDevice.value = null;
+      }
+      return true;
+    }
+  } catch (error: any) {
+    const errorMsg = error.response?.data?.message || error.message;
+    addOperationHistory(
+      deviceId,
+      'DELETE',
+      'error',
+      `删除设备失败: ${errorMsg}`
+    );
+    throw error;
+  }
+};
+
+// 带进程ID的设备申请
+const requestDeviceWithProcess = async (deviceId: number) => {
+  if (!selectedProcessId.value) {
+    alert('请先选择一个进程');
+    return;
+  }
+
+  try {
+    await requestDevice(deviceId, selectedProcessId.value);
+  } catch (error) {
+    console.error('申请设备失败:', error);
+  }
+};
+
+// 带进程ID的设备释放
+const releaseDeviceWithProcess = async (deviceId: number) => {
+  if (!selectedProcessId.value) {
+    alert('请先选择一个进程');
+    return;
+  }
+
+  try {
+    await releaseDevice(deviceId, selectedProcessId.value);
+  } catch (error) {
+    console.error('释放设备失败:', error);
+  }
+};
+
+// 确认删除设备
+const confirmDeleteDevice = async (deviceId: number) => {
+  const device = devices.value.find(d => d.device_id === deviceId);
+  if (!device) return;
+
+  let confirmMessage = `确定要删除设备 "${device.name}" 吗？\n\n此操作不可恢复。`;
+
+  // 如果设备是BUSY状态，需要特殊处理
+  if (device.status === 'BUSY') {
+    confirmMessage = `设备 "${device.name}" 正在被进程 ${device.current_user} 使用。\n\n确定要强制删除吗？这将：\n1. 先释放设备\n2. 然后删除设备\n\n此操作不可恢复。`;
+  }
+
+  const confirmed = confirm(confirmMessage);
+  if (confirmed) {
+    try {
+      await deleteDeviceWithForce(deviceId);
+    } catch (error) {
+      console.error('删除设备失败:', error);
+    }
+  }
+};
+
+// 强制删除设备（处理BUSY状态）
+const deleteDeviceWithForce = async (deviceId: number) => {
+  const device = devices.value.find(d => d.device_id === deviceId);
+  if (!device) return;
+
+  try {
+    // 如果设备是BUSY状态，先尝试释放
+    if (device.status === 'BUSY' && device.current_user) {
+      addOperationHistory(
+        deviceId,
+        'FORCE_RELEASE',
+        'success',
+        `开始强制释放设备，当前用户: 进程 ${device.current_user}`
+      );
+
+      try {
+        // 尝试释放设备
+        await deviceAPI.releaseDevice(deviceId, device.current_user);
+        addOperationHistory(
+          deviceId,
+          'FORCE_RELEASE',
+          'success',
+          `设备已从进程 ${device.current_user} 强制释放`
+        );
+
+        // 等待一下让状态更新
+        await new Promise(resolve => setTimeout(resolve, 500));
+        await fetchDevices();
+
+      } catch (releaseError: any) {
+        console.warn('释放设备失败，继续尝试删除:', releaseError);
+        addOperationHistory(
+          deviceId,
+          'FORCE_RELEASE',
+          'error',
+          `释放失败: ${releaseError.response?.data?.message || releaseError.message}，继续删除操作`
+        );
+      }
+    }
+
+    // 执行删除操作
+    await deleteDevice(deviceId);
+
+  } catch (error: any) {
+    const errorMsg = error.response?.data?.message || error.message;
+    addOperationHistory(
+      deviceId,
+      'FORCE_DELETE',
+      'error',
+      `强制删除失败: ${errorMsg}`
+    );
     throw error;
   }
 };
@@ -628,18 +765,32 @@ onUnmounted(() => {
           <!-- 设备操作 -->
           <div class="operations-section">
             <h4>设备操作</h4>
+
+            <!-- 进程选择器 -->
+            <div class="process-selector" v-if="processes.length > 0">
+              <label>选择进程:</label>
+              <select v-model="selectedProcessId" class="process-select">
+                <option value="">选择进程...</option>
+                <option v-for="process in processes" :key="process.pid" :value="process.pid">
+                  PID {{ process.pid }} ({{ process.state }})
+                </option>
+              </select>
+            </div>
+
             <div class="operation-buttons">
               <button
-                @click="requestDevice(selectedDevice.type)"
-                :disabled="selectedDevice.status === 'BUSY'"
+                @click="requestDeviceWithProcess(selectedDevice.device_id)"
+                :disabled="selectedDevice.status === 'BUSY' || !selectedProcessId"
                 class="btn-primary"
+                :title="!selectedProcessId ? '请先选择进程' : ''"
               >
-                请求设备
+                申请设备
               </button>
               <button
-                @click="releaseDevice(selectedDevice.device_id)"
-                :disabled="selectedDevice.status !== 'BUSY'"
+                @click="releaseDeviceWithProcess(selectedDevice.device_id)"
+                :disabled="selectedDevice.status !== 'BUSY' || !selectedProcessId"
                 class="btn-secondary"
+                :title="!selectedProcessId ? '请先选择进程' : ''"
               >
                 释放设备
               </button>
@@ -649,6 +800,17 @@ onUnmounted(() => {
                 class="btn-info"
               >
                 测试设备
+              </button>
+              <button
+                @click="confirmDeleteDevice(selectedDevice.device_id)"
+                :disabled="selectedDevice.status === 'ERROR'"
+                :class="[
+                  selectedDevice.status === 'BUSY' ? 'btn-danger-force' : 'btn-danger'
+                ]"
+                :title="selectedDevice.status === 'BUSY' ? '将先释放设备再删除' : '删除设备'"
+              >
+                <span v-if="selectedDevice.status === 'BUSY'">⚡ 强制删除</span>
+                <span v-else>🗑️ 删除设备</span>
               </button>
 
               <!-- 高级操作下拉菜单 -->
@@ -808,13 +970,14 @@ onUnmounted(() => {
   font-size: 13px;
 }
 
-.btn-primary, .btn-secondary, .btn-success, .btn-info, .btn-warning {
+.btn-primary, .btn-secondary, .btn-success, .btn-info, .btn-warning, .btn-danger {
   padding: 8px 16px;
   border: none;
   border-radius: 4px;
   cursor: pointer;
   font-weight: 500;
   transition: all 0.2s;
+  font-size: 14px;
 }
 
 .btn-primary { background: #007bff; color: white; }
@@ -822,12 +985,85 @@ onUnmounted(() => {
 .btn-success { background: #28a745; color: white; }
 .btn-info { background: #17a2b8; color: white; }
 .btn-warning { background: #ffc107; color: #212529; }
+.btn-danger { background: #dc3545; color: white; }
 
 .btn-primary:hover { background: #0056b3; }
 .btn-secondary:hover { background: #545b62; }
 .btn-success:hover { background: #218838; }
 .btn-info:hover { background: #138496; }
 .btn-warning:hover { background: #e0a800; }
+.btn-danger:hover {
+  background: #c82333;
+  transform: scale(1.02);
+  box-shadow: 0 2px 8px rgba(220, 53, 69, 0.3);
+}
+
+.btn-danger-force {
+  background: linear-gradient(45deg, #dc3545, #fd7e14);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 8px 16px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s;
+  font-size: 14px;
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-danger-force::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+  transition: left 0.5s;
+}
+
+.btn-danger-force:hover::before {
+  left: 100%;
+}
+
+.btn-danger-force:hover {
+  background: linear-gradient(45deg, #c82333, #e68900);
+  transform: scale(1.02);
+  box-shadow: 0 4px 12px rgba(220, 53, 69, 0.4);
+}
+
+.process-selector {
+  margin-bottom: 15px;
+  padding: 12px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  border: 1px solid #e9ecef;
+}
+
+.process-selector label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 500;
+  color: #495057;
+  font-size: 13px;
+}
+
+.process-select {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  background: white;
+  font-size: 14px;
+  transition: border-color 0.2s ease;
+}
+
+.process-select:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}
 
 .main-content {
   flex: 1;
