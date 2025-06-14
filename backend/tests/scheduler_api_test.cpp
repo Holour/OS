@@ -102,7 +102,41 @@ void run_scheduler_tests() {
     // Brief pause to allow server to process terminations and update queues
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
-    // 5. Final state: ready queue should be back to its state before creating temp processes
+    // 5. 更改调度算法并验证
+    auto putBody = json{{"algorithm","SJF"}}.dump();
+    auto putRes = cli.Put("/api/v1/scheduler/config", putBody, "application/json");
+    assert(putRes && putRes->status == 200);
+
+    // 验证当前算法
+    auto cfgRes = cli.Get("/api/v1/scheduler/config");
+    assert(cfgRes && cfgRes->status == 200);
+    assert(json::parse(cfgRes->body)["data"]["algorithm"] == "SJF");
+
+    // 6. 获取甘特图数据
+    auto ganttRes = cli.Get("/api/v1/scheduler/gantt_chart");
+    assert(ganttRes && ganttRes->status == 200);
+    json ganttBody = json::parse(ganttRes->body);
+    assert(ganttBody["status"] == "success");
+    assert(ganttBody["data"].is_array());
+    std::cout << "Gantt entries count (SJF): " << ganttBody["data"].size() << std::endl;
+
+    // 6b. 更改至 RR 并验证甘特图非空
+    auto putBodyRR = json{{"algorithm","RR"}, {"time_slice", 3}}.dump();
+    auto putResRR = cli.Put("/api/v1/scheduler/config", putBodyRR, "application/json");
+    assert(putResRR && putResRR->status == 200);
+
+    auto rrRes = cli.Get("/api/v1/scheduler/config");
+    assert(rrRes && rrRes->status == 200);
+    assert(json::parse(rrRes->body)["data"]["algorithm"] == "RR");
+
+    auto rrGanttRes = cli.Get("/api/v1/scheduler/gantt_chart");
+    assert(rrGanttRes && rrGanttRes->status == 200);
+    json rrBody = json::parse(rrGanttRes->body);
+    assert(rrBody["status"] == "success");
+    assert(rrBody["data"].is_array() && rrBody["data"].size() > 0);
+    std::cout << "Gantt entries count (RR): " << rrBody["data"].size() << std::endl;
+
+    // 7. Final state
     test_get_ready_queue(cli, current_ready_count);
     assert(current_ready_count == initial_ready_count -1);
 

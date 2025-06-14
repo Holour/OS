@@ -13,8 +13,17 @@ export const processAPI = {
   getProcesses: () => apiClient.get('/processes'),
 
   // 创建新进程
-  createProcess: (name: string, size: number) =>
-    apiClient.post('/processes', { memory_size: size }),
+  createProcess: (...args: any[]) => {
+    if (typeof args[0] === 'string') {
+      // 旧签名 (name: string, size: number)
+      const [, size] = args as [string, number];
+      return apiClient.post('/processes', { memory_size: size });
+    }
+
+    // 新签名 (size: number, cpu_time?: number, priority?: number)
+    const [size, cpu_time = 10, priority = 5] = args as [number, number?, number?];
+    return apiClient.post('/processes', { memory_size: size, cpu_time, priority });
+  },
 
   // 终止进程
   terminateProcess: (pid: number) =>
@@ -31,6 +40,16 @@ export const schedulerAPI = {
 
   // 获取就绪队列（修正路径为ready_queue）
   getReadyQueue: () => apiClient.get('/scheduler/ready_queue'),
+
+  // 获取当前调度器配置（算法与时间片）
+  getStatus: () => apiClient.get('/scheduler/config'),
+
+  // 更新调度器配置
+  setConfig: (algorithm: string, time_slice?: number) =>
+    apiClient.put('/scheduler/config', { algorithm, time_slice }),
+
+  // 获取甘特图数据
+  getGanttChart: () => apiClient.get('/scheduler/gantt_chart'),
 };
 
 // 内存管理 API

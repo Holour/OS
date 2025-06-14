@@ -23,12 +23,17 @@ public:
     ProcessID pid;
     ProcessState state;
     uint64_t program_counter;
+    uint64_t cpu_time;           // 模拟 CPU 占用时间（总量）
+    uint64_t remaining_time;     // 剩余 CPU 时间（调度用）
+    uint32_t priority;           // 数字越小优先级越高
+    uint64_t creation_time;      // 创建时间（毫秒 since epoch）
     // 可以添加寄存器等上下文信息
     // ...
 
     std::vector<MemoryBlock> memory_info; // 进程占用的内存块
 
-    PCB() : pid(-1), state(ProcessState::NEW) {}
+    PCB()
+        : pid(-1), state(ProcessState::NEW), program_counter(0), cpu_time(0), remaining_time(0), priority(0), creation_time(0) {}
 };
 
 #endif //PCB_H 

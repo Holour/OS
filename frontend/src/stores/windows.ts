@@ -28,7 +28,7 @@ export const useWindowsStore = defineStore('windows', {
     componentDefaults: () => ({
       'DeviceManager': { width: 1200, height: 800 },
       'FileManager': { width: 900, height: 600 },
-      'ProcessManager': { width: 800, height: 600 },
+      'ProcessManager': { width: 1200, height: 750 },
       'Terminal': { width: 800, height: 500 },
       'SystemControl': { width: 700, height: 500 },
       'MemoryManager': { width: 900, height: 600 }

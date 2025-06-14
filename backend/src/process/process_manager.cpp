@@ -1,11 +1,28 @@
 #include "../../include/process/process_manager.h"
 #include <algorithm>
 #include <iostream>
+#include <chrono>
+#include <deque>
 
 ProcessManager::ProcessManager(MemoryManager& mem_manager)
     : memory_manager(mem_manager), next_pid(1), current_running_process(nullptr) {}
 
-std::optional<ProcessID> ProcessManager::create_process(uint64_t size) {
+void ProcessManager::set_algorithm(SchedulingAlgorithm algo, uint64_t time_slice) {
+    algorithm_ = algo;
+    if (algo == SchedulingAlgorithm::RR && time_slice > 0) {
+        time_slice_ = time_slice;
+    }
+}
+
+SchedulingAlgorithm ProcessManager::get_algorithm() const {
+    return algorithm_;
+}
+
+uint64_t ProcessManager::get_time_slice() const {
+    return time_slice_;
+}
+
+std::optional<ProcessID> ProcessManager::create_process(uint64_t size, uint64_t cpu_time, uint32_t priority) {
     if (size == 0) {
         return std::nullopt;
     }
@@ -22,6 +39,12 @@ std::optional<ProcessID> ProcessManager::create_process(uint64_t size) {
     pcb->state = ProcessState::READY;
     pcb->memory_info.push_back(block_opt.value());
     
+    pcb->cpu_time = cpu_time;
+    pcb->remaining_time = cpu_time;
+    pcb->priority = priority;
+    pcb->creation_time = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count());
+
     // 对于分区(PARTITIONED)或分页(PAGED)策略, 需要重新获取并覆盖首地址;
     // 连续分配(CONTINUOUS)策略下, allocate_for_process 已经返回了正确的 base_address, 无需覆盖
     auto current_strategy = memory_manager.get_allocation_strategy();
@@ -33,7 +56,7 @@ std::optional<ProcessID> ProcessManager::create_process(uint64_t size) {
     }
 
     all_processes[pcb->pid] = pcb;
-    ready_queue.push(pcb);
+    ready_queue.push_back(pcb);
 
     return pcb->pid;
 }
@@ -65,15 +88,11 @@ bool ProcessManager::terminate_process(ProcessID pid) {
     }
     
     // Remove from ready queue
-    std::queue<std::shared_ptr<PCB>> new_ready_queue;
-    while (!ready_queue.empty()) {
-        auto p = ready_queue.front();
-        ready_queue.pop();
-        if (p->pid != pid) {
-            new_ready_queue.push(p);
-        }
+    std::deque<std::shared_ptr<PCB>> new_ready_queue;
+    for (const auto& p : ready_queue) {
+        if (p->pid != pid) new_ready_queue.push_back(p);
     }
-    ready_queue = new_ready_queue;
+    ready_queue.swap(new_ready_queue);
 
     // Remove from blocked queue
     std::list<std::shared_ptr<PCB>> new_blocked_list;
@@ -88,20 +107,50 @@ bool ProcessManager::terminate_process(ProcessID pid) {
 }
 
 std::shared_ptr<PCB> ProcessManager::schedule() {
-    // If there's a running process, move it to the back of the ready queue.
+    // 将当前运行进程重新放回就绪队列（RR/FCFS需要）
     if (current_running_process) {
         current_running_process->state = ProcessState::READY;
-        ready_queue.push(current_running_process);
+        ready_queue.push_back(current_running_process);
         current_running_process = nullptr;
     }
 
-    // If there are ready processes, pick the next one.
-    if (!ready_queue.empty()) {
-        current_running_process = ready_queue.front();
-        ready_queue.pop();
-        current_running_process->state = ProcessState::RUNNING;
+    if (ready_queue.empty()) {
+        return nullptr;
     }
-    
+
+    size_t idx = 0; // 选中索引
+    switch (algorithm_) {
+        case SchedulingAlgorithm::FCFS:
+            idx = 0; // 队首
+            break;
+        case SchedulingAlgorithm::SJF: {
+            uint64_t min_time = UINT64_MAX;
+            for (size_t i = 0; i < ready_queue.size(); ++i) {
+                if (ready_queue[i]->remaining_time < min_time) {
+                    min_time = ready_queue[i]->remaining_time;
+                    idx = i;
+                }
+            }
+            break;
+        }
+        case SchedulingAlgorithm::PRIORITY: {
+            uint32_t min_pri = UINT32_MAX;
+            for (size_t i = 0; i < ready_queue.size(); ++i) {
+                if (ready_queue[i]->priority < min_pri) {
+                    min_pri = ready_queue[i]->priority;
+                    idx = i;
+                }
+            }
+            break; }
+        case SchedulingAlgorithm::RR:
+            idx = 0;
+            break;
+    }
+
+    current_running_process = ready_queue[idx];
+    ready_queue.erase(ready_queue.begin() + idx);
+    current_running_process->state = ProcessState::RUNNING;
+
     return current_running_process;
 }
 
@@ -118,20 +167,18 @@ bool ProcessManager::block_process(ProcessID pid) {
     }
 
     // Find in ready queue
-    std::queue<std::shared_ptr<PCB>> new_ready_queue;
     bool found = false;
     std::shared_ptr<PCB> pcb_to_block = nullptr;
-    while(!ready_queue.empty()){
-        auto p = ready_queue.front();
-        ready_queue.pop();
-        if(p->pid == pid){
+    std::deque<std::shared_ptr<PCB>> new_ready_queue;
+    for (const auto& p : ready_queue) {
+        if (p->pid == pid) {
             found = true;
             pcb_to_block = p;
         } else {
-            new_ready_queue.push(p);
+            new_ready_queue.push_back(p);
         }
     }
-    ready_queue = new_ready_queue;
+    ready_queue.swap(new_ready_queue);
 
     if (found) {
         pcb_to_block->state = ProcessState::BLOCKED;
@@ -151,7 +198,7 @@ bool ProcessManager::wakeup_process(ProcessID pid) {
     if (it != blocked_processes.end()) {
         auto pcb = *it;
         pcb->state = ProcessState::READY;
-        ready_queue.push(pcb);
+        ready_queue.push_back(pcb);
         blocked_processes.erase(it);
         return true;
     }
@@ -166,12 +213,7 @@ std::shared_ptr<PCB> ProcessManager::get_running_process() const {
 }
 
 std::vector<std::shared_ptr<PCB>> ProcessManager::get_ready_processes() const {
-    std::vector<std::shared_ptr<PCB>> ready_vec;
-    std::queue<std::shared_ptr<PCB>> temp_q = ready_queue;
-    while(!temp_q.empty()){
-        ready_vec.push_back(temp_q.front());
-        temp_q.pop();
-    }
+    std::vector<std::shared_ptr<PCB>> ready_vec(ready_queue.begin(), ready_queue.end());
     return ready_vec;
 }
 
@@ -197,4 +239,86 @@ std::vector<std::shared_ptr<PCB>> ProcessManager::get_all_processes() const {
         processes.push_back(pair.second);
     }
     return processes;
+}
+
+// ------------------ 甘特图生成 -------------------
+std::vector<ProcessManager::GanttEntry> ProcessManager::generate_gantt_chart() const {
+    std::vector<GanttEntry> table;
+
+    if (all_processes.empty()) return table;
+
+    // 收集所有进程（包含 TERMINATED 之外的所有状态）
+    struct SimProc {
+        ProcessID pid;
+        uint64_t cpu_time;   // 进程总 CPU 时间
+        uint32_t priority;
+        uint64_t creation_time;
+    };
+
+    std::vector<SimProc> procs;
+    procs.reserve(all_processes.size());
+    for (const auto& [pid, pcb_ptr] : all_processes) {
+        // 如果进程 cpu_time == 0 则跳过
+        if (!pcb_ptr || pcb_ptr->cpu_time == 0) continue;
+        procs.push_back({pid, pcb_ptr->cpu_time, pcb_ptr->priority, pcb_ptr->creation_time});
+    }
+
+    if (procs.empty()) return table;
+
+    uint64_t current_time = 0;
+
+    switch (algorithm_) {
+        case SchedulingAlgorithm::FCFS: {
+            std::sort(procs.begin(), procs.end(), [](const SimProc& a, const SimProc& b){ return a.creation_time < b.creation_time; });
+            for (const auto& p : procs) {
+                table.push_back({p.pid, current_time, current_time + p.cpu_time});
+                current_time += p.cpu_time;
+            }
+            break;
+        }
+        case SchedulingAlgorithm::SJF: {
+            std::sort(procs.begin(), procs.end(), [](const SimProc& a, const SimProc& b){ return a.cpu_time < b.cpu_time; });
+            for (const auto& p : procs) {
+                table.push_back({p.pid, current_time, current_time + p.cpu_time});
+                current_time += p.cpu_time;
+            }
+            break;
+        }
+        case SchedulingAlgorithm::PRIORITY: {
+            std::sort(procs.begin(), procs.end(), [](const SimProc& a, const SimProc& b){ return a.priority < b.priority; });
+            for (const auto& p : procs) {
+                table.push_back({p.pid, current_time, current_time + p.cpu_time});
+                current_time += p.cpu_time;
+            }
+            break;
+        }
+        case SchedulingAlgorithm::RR: {
+            uint64_t ts = time_slice_ > 0 ? time_slice_ : 1;
+
+            // 使用 deque 进行轮转调度模拟，存储 <pid, remaining_time>
+            std::deque<std::pair<ProcessID, uint64_t>> q;
+            for (const auto& p : procs) {
+                q.emplace_back(p.pid, p.cpu_time);
+            }
+
+            while (!q.empty()) {
+                auto [pid, remain] = q.front();
+                q.pop_front();
+
+                uint64_t exec = std::min<uint64_t>(ts, remain);
+                // 避免生成长度为 0 的片段
+                if (exec == 0) continue;
+
+                table.push_back({pid, current_time, current_time + exec});
+                current_time += exec;
+                remain -= exec;
+                if (remain > 0) {
+                    q.emplace_back(pid, remain);
+                }
+            }
+            break;
+        }
+    }
+
+    return table;
 } 

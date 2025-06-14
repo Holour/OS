@@ -5,6 +5,7 @@
 #include <iomanip>
 #include <sstream>
 #include <nlohmann/json.hpp>
+#include <chrono>
 
 #include "../include/memory/memory_manager.h"
 #include "../include/process/process_manager.h"
@@ -49,6 +50,25 @@ std::string allocation_strategy_to_string(AllocationStrategy strategy) {
     }
 }
 
+// 调度算法与字符串互转
+std::optional<SchedulingAlgorithm> string_to_sched_algo(const std::string& s) {
+    if (s == "FCFS") return SchedulingAlgorithm::FCFS;
+    if (s == "SJF") return SchedulingAlgorithm::SJF;
+    if (s == "PRIORITY") return SchedulingAlgorithm::PRIORITY;
+    if (s == "RR") return SchedulingAlgorithm::RR;
+    return std::nullopt;
+}
+
+std::string sched_algo_to_string(SchedulingAlgorithm algo) {
+    switch (algo) {
+        case SchedulingAlgorithm::FCFS: return "FCFS";
+        case SchedulingAlgorithm::SJF: return "SJF";
+        case SchedulingAlgorithm::PRIORITY: return "PRIORITY";
+        case SchedulingAlgorithm::RR: return "RR";
+        default: return "UNKNOWN";
+    }
+}
+
 // 函数：初始化系统状态
 void initialize_system_state() {
     std::cout << "Initializing default system state..." << std::endl;
@@ -71,32 +91,40 @@ void initialize_system_state() {
     fs_manager->create_file("/home/myapp.pubt", 24 * 1024 * 1024, 755);     // 用户自定义应用，需要24MB
 
     // 2. 创建多个初始进程（模拟真实操作系统的各种进程）
-    std::vector<std::pair<std::string, uint64_t>> initial_processes = {
-        {"idle_process", 256 * 1024},        // 空闲进程: 256KB
-        {"kernel_worker", 512 * 1024},       // 内核工作进程: 512KB
-        {"system_logger", 1024 * 1024},      // 系统日志进程: 1MB
-        {"memory_manager", 768 * 1024},      // 内存管理进程: 768KB
-        {"device_driver", 2 * 1024 * 1024},  // 设备驱动进程: 2MB
-        {"shell", 4 * 1024 * 1024},          // 命令行解释器: 4MB
-        {"file_system", 3 * 1024 * 1024},    // 文件系统进程: 3MB
-        {"network_stack", 6 * 1024 * 1024},  // 网络协议栈: 6MB
-        {"gui_manager", 8 * 1024 * 1024},    // GUI管理器: 8MB
-        {"calculator", 10 * 1024 * 1024},    // 计算器应用: 10MB (对应.pubt文件)
-        {"notepad", 5 * 1024 * 1024},        // 记事本应用: 5MB (对应.pubt文件)
-        {"browser", 50 * 1024 * 1024},       // 浏览器应用: 50MB (对应.pubt文件)
-        {"background_service", 1536 * 1024}, // 后台服务: 1.5MB
-        {"antivirus", 12 * 1024 * 1024},     // 杀毒软件: 12MB
-        {"media_player", 15 * 1024 * 1024},  // 媒体播放器: 15MB
+    struct InitProcCfg {
+        std::string name;
+        uint64_t mem_size;
+        uint64_t cpu_time;   // 预估 CPU 时间 (ms)
+        uint32_t priority;   // 0 为最高优先级
+    };
+
+    std::vector<InitProcCfg> initial_processes = {
+        {"idle_process",        256 * 1024,          5,   10},  // 非常低 CPU 时间, 低优先级
+        {"kernel_worker",       512 * 1024,          50,   1},  // 高优先级，短作业
+        {"system_logger",      1024 * 1024,         200,   3},
+        {"memory_manager",      768 * 1024,         120,   2},
+        {"device_driver",      2 * 1024 * 1024,      80,   2},
+        {"shell",              4 * 1024 * 1024,     100,   4},
+        {"file_system",        3 * 1024 * 1024,     150,   3},
+        {"network_stack",      6 * 1024 * 1024,     300,   2},
+        {"gui_manager",        8 * 1024 * 1024,     250,   4},
+        {"calculator",        10 * 1024 * 1024,     180,   5},
+        {"notepad",            5 * 1024 * 1024,     160,   5},
+        {"browser",           50 * 1024 * 1024,     800,   6},
+        {"background_service",1536 * 1024,          400,   6},
+        {"antivirus",         12 * 1024 * 1024,     600,   2},
+        {"media_player",      15 * 1024 * 1024,     500,   5}
     };
 
     std::cout << "Creating initial processes..." << std::endl;
-    for (const auto& [name, size] : initial_processes) {
-        auto pid = process_manager->create_process(size);
+    for (const auto& cfg : initial_processes) {
+        auto pid = process_manager->create_process(cfg.mem_size, cfg.cpu_time, cfg.priority);
         if (pid) {
-            std::cout << "✓ Created process '" << name << "' with PID: " << *pid 
-                      << " (Size: " << size / 1024 << " KB)" << std::endl;
+            std::cout << "✓ Created process '" << cfg.name << "' with PID: " << *pid
+                      << " (Mem: " << cfg.mem_size / 1024 << " KB, CPU: " << cfg.cpu_time
+                      << "ms, Priority: " << cfg.priority << ")" << std::endl;
         } else {
-            std::cout << "✗ Failed to create process '" << name << "' (Size: " << size / 1024 << " KB)" << std::endl;
+            std::cout << "✗ Failed to create process '" << cfg.name << "' (Mem: " << cfg.mem_size / 1024 << " KB)" << std::endl;
         }
     }
 
@@ -203,7 +231,10 @@ int main(int argc, char* argv[]) {
             try {
                 auto body = json::parse(req.body);
                 uint64_t memory_size = body.at("memory_size");
-                auto pid_opt = process_manager->create_process(memory_size);
+                uint64_t cpu_time = body.value("cpu_time", 10);
+                uint32_t priority = body.value("priority", 5);
+
+                auto pid_opt = process_manager->create_process(memory_size, cpu_time, priority);
                 if (pid_opt) {
                     auto pcb = process_manager->get_process(*pid_opt);
                     res.status = 201;
@@ -236,6 +267,48 @@ int main(int argc, char* argv[]) {
             } else {
                 res.set_content(create_success_response(json(nullptr), "Ready queue is empty, no process to schedule.").dump(), "application/json; charset=utf-8");
             }
+        });
+
+        // 获取/设置调度算法
+        svr.Get("/api/v1/scheduler/config", [&](const httplib::Request&, httplib::Response& res) {
+            json data = {
+                {"algorithm", sched_algo_to_string(process_manager->get_algorithm())},
+                {"time_slice", process_manager->get_time_slice()}
+            };
+            res.set_content(create_success_response(data).dump(), "application/json; charset=utf-8");
+        });
+
+        svr.Put("/api/v1/scheduler/config", [&](const httplib::Request& req, httplib::Response& res) {
+            try {
+                auto body = json::parse(req.body);
+                std::string algo_str = body.at("algorithm");
+                uint64_t ts = body.value("time_slice", 1);
+                auto algo_opt = string_to_sched_algo(algo_str);
+                if (!algo_opt) {
+                    res.status = 400;
+                    res.set_content(create_error_response("Invalid algorithm value.").dump(), "application/json; charset=utf-8");
+                    return;
+                }
+                process_manager->set_algorithm(*algo_opt, ts);
+                json data = {
+                    {"algorithm", algo_str},
+                    {"time_slice", process_manager->get_time_slice()}
+                };
+                res.set_content(create_success_response(data, "Scheduler algorithm updated").dump(), "application/json; charset=utf-8");
+            } catch (const json::exception& e) {
+                res.status = 400;
+                res.set_content(create_error_response("Invalid request body: " + std::string(e.what())).dump(), "application/json; charset=utf-8");
+            }
+        });
+
+        // 生成甘特图
+        svr.Get("/api/v1/scheduler/gantt_chart", [&](const httplib::Request&, httplib::Response& res) {
+            auto table = process_manager->generate_gantt_chart();
+            json arr = json::array();
+            for (const auto& entry : table) {
+                arr.push_back({{"pid", entry.pid}, {"start", entry.start}, {"end", entry.end}});
+            }
+            res.set_content(create_success_response(arr).dump(), "application/json; charset=utf-8");
         });
 
         svr.Get("/api/v1/scheduler/ready_queue", [&](const httplib::Request&, httplib::Response& res) {
@@ -882,6 +955,9 @@ json pcb_to_json(const PCB& pcb) {
     j["pid"] = pcb.pid;
     j["state"] = to_string_for_json(pcb.state);
     j["program_counter"] = pcb.program_counter;
+    j["cpu_time"] = pcb.cpu_time;
+    j["priority"] = pcb.priority;
+    j["creation_time"] = pcb.creation_time;
     j["memory_info"] = json::array();
     for (const auto& block : pcb.memory_info) {
         j["memory_info"].push_back({

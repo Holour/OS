@@ -19,6 +19,9 @@
 | pid           | integer       | 进程唯一标识符 (Process ID)                |
 | state         | string        | 进程当前状态 ("NEW", "READY", "RUNNING", "BLOCKED", "TERMINATED") |
 | program_counter | integer       | 程序计数器                               |
+| cpu_time      | integer       | 进程所需 CPU 时间（毫秒，模拟值）        |
+| priority      | integer       | 进程优先级 (数字越小优先级越高)          |
+| creation_time | integer(uint64)| 创建时间（毫秒 since epoch）             |
 | memory_info   | array (object)| 进程占用的内存块信息                     |
 | » base_address| integer(uint64) | 内存块起始地址                           |
 | » size        | integer(uint64) | 内存块大小（字节）                       |
@@ -36,6 +39,9 @@
           "pid": 1,
           "state": "RUNNING",
           "program_counter": 1024,
+          "cpu_time": 500,
+          "priority": 3,
+          "creation_time": 1684320000,
           "memory_info": [
             {
               "base_address": 0,
@@ -47,6 +53,9 @@
           "pid": 2,
           "state": "READY",
           "program_counter": 0,
+          "cpu_time": 0,
+          "priority": 5,
+          "creation_time": 1684320000,
           "memory_info": [
             {
               "base_address": 4096,
@@ -70,6 +79,8 @@
 | 参数名        | 类型            | 是否必须 | 描述           |
 |---------------|-----------------|----------|----------------|
 | memory_size   | integer(uint64) | 是       | 请求的内存大小（字节） |
+| cpu_time      | integer         | 否       | 进程预计 CPU 时间（毫秒），默认 10 |
+| priority      | integer         | 否       | 进程优先级，默认 5 |
 
 *   **响应参数**
     成功时，响应体为新创建进程的完整信息，结构同 `1.1` 中的单个进程对象。
@@ -77,7 +88,9 @@
 **请求示例**
 ```json
 {
-  "memory_size": 16384
+  "memory_size": 16384,
+  "cpu_time": 500,
+  "priority": 3
 }
 ```
 
@@ -91,6 +104,9 @@
         "pid": 3,
         "state": "READY",
         "program_counter": 0,
+        "cpu_time": 500,
+        "priority": 3,
+        "creation_time": 1684320000,
         "memory_info": [
           {
             "base_address": 12288,
@@ -142,6 +158,26 @@
     ```
 
 ### **2. 调度器 (Scheduler)**
+
+#### 2.0 调度器配置
+
+获取或设置当前调度算法及时间片大小。
+
+**接口地址**
+*   查询: `GET  /api/v1/scheduler/config`
+*   设置: `PUT  /api/v1/scheduler/config`
+
+**请求参数 (PUT)**
+| 参数名      | 类型    | 是否必须 | 描述                                     |
+|-------------|---------|----------|------------------------------------------|
+| algorithm   | string  | 是       | 调度算法 ("FCFS", "SJF", "PRIORITY", "RR") |
+| time_slice  | integer | 否       | 时间片大小（毫秒，仅 RR 有效，默认 1）    |
+
+**响应参数 (GET & PUT)**
+| 参数名      | 类型    | 描述                     |
+|-------------|---------|--------------------------|
+| algorithm   | string  | 当前调度算法             |
+| time_slice  | integer | 当前时间片大小           |
 
 #### 2.1 执行一次调度
 手动触发一次调度器操作，从就绪队列中选出下一个进程投入运行。
@@ -216,6 +252,22 @@
       ]
     }
     ```
+
+#### 2.3 生成甘特图数据
+根据当前调度算法和进程队列，返回一张甘特图表。
+
+**接口地址**
+`GET http://localhost:8080/api/v1/scheduler/gantt_chart`
+
+**响应参数**
+返回按调度顺序排列的数组，每个元素包含:
+
+| 参数名 | 类型    | 描述           |
+|--------|---------|----------------|
+| pid    | integer | 进程ID         |
+| start  | integer | 开始时间 (ms)  |
+| end    | integer | 结束时间 (ms)  |
+
 ### **3. 内存管理 (Memory Management)**
 #### 3.1 获取内存状态
 获取当前整个系统的内存使用详情。

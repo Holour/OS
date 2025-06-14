@@ -41,4 +41,12 @@ enum class MemoryAllocationStrategy {
 const uint64_t PAGE_SIZE = 4096;  // 4KB页面大小
 const uint64_t TOTAL_PAGES = MEMORY_SIZE / PAGE_SIZE;
 
+// Scheduling algorithms
+enum class SchedulingAlgorithm {
+    FCFS,        // 先来先服务
+    SJF,         // 短作业优先
+    PRIORITY,    // 优先级调度
+    RR          // 时间片轮转
+};
+
 #endif // COMMON_H 
