@@ -99,26 +99,26 @@ void initialize_system_state() {
     };
 
     std::vector<InitProcCfg> initial_processes = {
-        {"idle_process",        256 * 1024,          5,   10},  // 非常低 CPU 时间, 低优先级
-        {"kernel_worker",       512 * 1024,          50,   1},  // 高优先级，短作业
-        {"system_logger",      1024 * 1024,         200,   3},
-        {"memory_manager",      768 * 1024,         120,   2},
-        {"device_driver",      2 * 1024 * 1024,      80,   2},
-        {"shell",              4 * 1024 * 1024,     100,   4},
-        {"file_system",        3 * 1024 * 1024,     150,   3},
-        {"network_stack",      6 * 1024 * 1024,     300,   2},
-        {"gui_manager",        8 * 1024 * 1024,     250,   4},
-        {"calculator",        10 * 1024 * 1024,     180,   5},
-        {"notepad",            5 * 1024 * 1024,     160,   5},
-        {"browser",           50 * 1024 * 1024,     800,   6},
-        {"background_service",1536 * 1024,          400,   6},
-        {"antivirus",         12 * 1024 * 1024,     600,   2},
-        {"media_player",      15 * 1024 * 1024,     500,   5}
+        {"System Idle Process",  256 * 1024,          5,   10},
+        {"System",              512 * 1024,         50,    1},
+        {"smss.exe",            768 * 1024,         80,    1},
+        {"csrss.exe",          1024 * 1024,        120,    2},
+        {"wininit.exe",        1536 * 1024,        150,    2},
+        {"services.exe",       2048 * 1024,        180,    3},
+        {"lsass.exe",          2048 * 1024,        200,    3},
+        {"svchost.exe",        4096 * 1024,        250,    4},
+        {"explorer.exe",       6144 * 1024,        300,    4},
+        {"spoolsv.exe",        4096 * 1024,        180,    5},
+        {"cmd.exe",             5120 * 1024,       160,    5},
+        {"chrome.exe",        51200 * 1024,       800,    6},
+        {"OneDrive.exe",       2048 * 1024,        400,    6},
+        {"MsMpEng.exe",       12288 * 1024,        600,    2},
+        {"wmplayer.exe",      15360 * 1024,        500,    5}
     };
 
     std::cout << "Creating initial processes..." << std::endl;
     for (const auto& cfg : initial_processes) {
-        auto pid = process_manager->create_process(cfg.mem_size, cfg.cpu_time, cfg.priority);
+        auto pid = process_manager->create_process(cfg.name, cfg.mem_size, cfg.cpu_time, cfg.priority);
         if (pid) {
             std::cout << "✓ Created process '" << cfg.name << "' with PID: " << *pid
                       << " (Mem: " << cfg.mem_size / 1024 << " KB, CPU: " << cfg.cpu_time
@@ -230,11 +230,12 @@ int main(int argc, char* argv[]) {
         svr.Post("/api/v1/processes", [&](const httplib::Request& req, httplib::Response& res) {
             try {
                 auto body = json::parse(req.body);
+                std::string name = body.value("name", "");
                 uint64_t memory_size = body.at("memory_size");
                 uint64_t cpu_time = body.value("cpu_time", 10);
                 uint32_t priority = body.value("priority", 5);
 
-                auto pid_opt = process_manager->create_process(memory_size, cpu_time, priority);
+                auto pid_opt = process_manager->create_process(name, memory_size, cpu_time, priority);
                 if (pid_opt) {
                     auto pcb = process_manager->get_process(*pid_opt);
                     res.status = 201;
@@ -256,6 +257,92 @@ int main(int argc, char* argv[]) {
             } else {
                 res.status = 404;
                 res.set_content(create_error_response("Process not found.").dump(), "application/json; charset=utf-8");
+            }
+        });
+
+        // 创建子进程
+        svr.Post(R"(/api/v1/processes/(\d+)/children)", [&](const httplib::Request& req, httplib::Response& res) {
+            ProcessID parent_pid = std::stoi(req.matches[1].str());
+            try {
+                auto body = json::parse(req.body);
+                std::string child_name = body.value("name", "");
+                uint64_t memory_size = body.at("memory_size");
+                uint64_t cpu_time = body.value("cpu_time", 10);
+                uint32_t priority = body.value("priority", 5);
+
+                auto pid_opt = process_manager->create_child_process(parent_pid, child_name, memory_size, cpu_time, priority);
+                if (pid_opt) {
+                    auto pcb = process_manager->get_process(*pid_opt);
+                    res.status = 201;
+                    res.set_content(create_success_response(pcb_to_json(*pcb), "Child process created successfully.").dump(), "application/json; charset=utf-8");
+                } else {
+                    res.status = 400;
+                    res.set_content(create_error_response("Failed to create child process.").dump(), "application/json; charset=utf-8");
+                }
+            } catch (const json::exception& e) {
+                res.status = 400;
+                res.set_content(create_error_response("Invalid request body: " + std::string(e.what())).dump(), "application/json; charset=utf-8");
+            }
+        });
+
+        // 更新进程状态
+        svr.Put(R"(/api/v1/processes/(\d+)/state)", [&](const httplib::Request& req, httplib::Response& res) {
+            ProcessID pid = std::stoi(req.matches[1].str());
+            try {
+                auto body = json::parse(req.body);
+                std::string state_str = body.at("state");
+                ProcessState new_state;
+                if (state_str == "NEW") new_state = ProcessState::NEW;
+                else if (state_str == "READY") new_state = ProcessState::READY;
+                else if (state_str == "RUNNING") new_state = ProcessState::RUNNING;
+                else if (state_str == "BLOCKED") new_state = ProcessState::BLOCKED;
+                else if (state_str == "TERMINATED") new_state = ProcessState::TERMINATED;
+                else {
+                    res.status = 400;
+                    res.set_content(create_error_response("Invalid state value").dump(), "application/json; charset=utf-8");
+                    return;
+                }
+
+                if (process_manager->update_process_state(pid, new_state)) {
+                    auto pcb = process_manager->get_process(pid);
+                    res.set_content(create_success_response(pcb_to_json(*pcb), "Process state updated").dump(), "application/json; charset=utf-8");
+                } else {
+                    res.status = 404;
+                    res.set_content(create_error_response("Process not found").dump(), "application/json; charset=utf-8");
+                }
+            } catch (const json::exception& e) {
+                res.status = 400;
+                res.set_content(create_error_response("Invalid request body: " + std::string(e.what())).dump(), "application/json; charset=utf-8");
+            }
+        });
+
+        // 创建进程关系（同步/互斥）
+        svr.Post("/api/v1/processes/relationship", [&](const httplib::Request& req, httplib::Response& res) {
+            try {
+                auto body = json::parse(req.body);
+                ProcessID pid1 = body.at("pid1");
+                ProcessID pid2 = body.at("pid2");
+                std::string type_str = body.at("relation_type");
+                ProcessManager::RelationType rtype;
+                if (type_str == "SYNC") rtype = ProcessManager::RelationType::SYNC;
+                else if (type_str == "MUTEX") rtype = ProcessManager::RelationType::MUTEX;
+                else {
+                    res.status = 400;
+                    res.set_content(create_error_response("Invalid relation_type").dump(), "application/json; charset=utf-8");
+                    return;
+                }
+
+                if (process_manager->create_process_relationship(pid1, pid2, rtype)) {
+                    json data = {{"pid1", pid1}, {"pid2", pid2}, {"relation_type", type_str}};
+                    res.status = 201;
+                    res.set_content(create_success_response(data, "Relationship created").dump(), "application/json; charset=utf-8");
+                } else {
+                    res.status = 400;
+                    res.set_content(create_error_response("Failed to create relationship (process not found)").dump(), "application/json; charset=utf-8");
+                }
+            } catch (const json::exception& e) {
+                res.status = 400;
+                res.set_content(create_error_response("Invalid request body: " + std::string(e.what())).dump(), "application/json; charset=utf-8");
             }
         });
 
@@ -984,6 +1071,8 @@ std::string to_string_for_json(ProcessState state) {
 json pcb_to_json(const PCB& pcb) {
     json j;
     j["pid"] = pcb.pid;
+    j["name"] = pcb.name;
+    j["parent_pid"] = pcb.parent_pid;
     j["state"] = to_string_for_json(pcb.state);
     j["program_counter"] = pcb.program_counter;
     j["cpu_time"] = pcb.cpu_time;

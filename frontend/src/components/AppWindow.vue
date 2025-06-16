@@ -19,6 +19,12 @@ type ResizeDirection = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw' | '';
 const startDrag = (event: MouseEvent) => {
   if (!windowEl.value) return;
 
+  // 如果点击来源于控制按钮区域，则不触发拖动逻辑
+  const targetEl = event.target as HTMLElement;
+  if (targetEl.closest('.controls')) {
+    return;
+  }
+
   event.preventDefault();
   windowStore.focusWindow(props.windowState.id);
 
@@ -245,12 +251,12 @@ onMounted(() => {
       <span class="title">{{ windowState.title }}</span>
       </div>
       <div class="controls">
-        <button class="control-btn minimize" @click="minimize" title="最小化">
+        <button class="control-btn minimize" @mousedown.stop @click="minimize" title="最小化">
           <svg width="12" height="12" viewBox="0 0 12 12">
             <rect x="2" y="6" width="8" height="1" fill="currentColor"/>
           </svg>
         </button>
-        <button class="control-btn maximize" @click="maximize" :title="windowState.isMaximized ? '还原' : '最大化'">
+        <button class="control-btn maximize" @mousedown.stop @click="maximize" :title="windowState.isMaximized ? '还原' : '最大化'">
           <svg v-if="!windowState.isMaximized" width="12" height="12" viewBox="0 0 12 12">
             <rect x="2" y="2" width="8" height="8" stroke="currentColor" stroke-width="1" fill="none"/>
           </svg>
@@ -259,7 +265,7 @@ onMounted(() => {
             <rect x="4" y="1" width="6" height="6" stroke="currentColor" stroke-width="1" fill="none"/>
           </svg>
         </button>
-        <button class="control-btn close" @click="close" title="关闭">
+        <button class="control-btn close" @mousedown.stop @click="close" title="关闭">
           <svg width="12" height="12" viewBox="0 0 12 12">
             <path d="M2.5 2.5l7 7M9.5 2.5l-7 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
           </svg>

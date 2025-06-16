@@ -29,6 +29,25 @@ export const processAPI = {
   terminateProcess: (pid: number) =>
     apiClient.delete(`/processes/${pid}`),
 
+  // 更新进程状态 (新增)
+  updateProcessState: (pid: number, state: string) =>
+    apiClient.put(`/processes/${pid}/state`, { state }),
+
+  // 创建子进程 (新增)
+  createChildProcess: (parentPid: number, memorySize: number, cpuTime: number = 10, priority: number = 5, name?: string) => {
+    const payload: any = { memory_size: memorySize, cpu_time: cpuTime, priority };
+    if (name) payload.name = name;
+    return apiClient.post(`/processes/${parentPid}/children`, payload);
+  },
+
+  // 创建进程关系 (新增)
+  createProcessRelationship: (pid1: number, pid2: number, relationType: 'SYNC' | 'MUTEX') =>
+    apiClient.post('/processes/relationship', {
+      pid1,
+      pid2,
+      relation_type: relationType
+    }),
+
   // 注意：后端没有实现获取单个进程详情的API
   // getProcess: (pid: number) => apiClient.get(`/processes/${pid}`),
 };

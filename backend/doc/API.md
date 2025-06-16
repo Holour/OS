@@ -1,4 +1,4 @@
-## **操作系统模拟器 API 文档 V2.0**
+## **操作系统模拟器 API 文档 V2.1**
 
 **基础URL**: `http://localhost:8080/api/v1`
 
@@ -17,6 +17,8 @@
 | 参数名        | 类型          | 描述                                     |
 |---------------|---------------|------------------------------------------|
 | pid           | integer       | 进程唯一标识符 (Process ID)                |
+| name          | string        | 进程名称                                   |
+| parent_pid    | integer       | 父进程 ID（-1 表示无父进程）                |
 | state         | string        | 进程当前状态 ("NEW", "READY", "RUNNING", "BLOCKED", "TERMINATED") |
 | program_counter | integer       | 程序计数器                               |
 | cpu_time      | integer       | 进程所需 CPU 时间（毫秒，模拟值）        |
@@ -37,6 +39,8 @@
       "data": [
         {
           "pid": 1,
+          "name": "process1",
+          "parent_pid": -1,
           "state": "RUNNING",
           "program_counter": 1024,
           "cpu_time": 500,
@@ -51,6 +55,8 @@
         },
         {
           "pid": 2,
+          "name": "process2",
+          "parent_pid": 1,
           "state": "READY",
           "program_counter": 0,
           "cpu_time": 0,
@@ -102,6 +108,8 @@
       "message": "Process created successfully.",
       "data": {
         "pid": 3,
+        "name": "process3",
+        "parent_pid": 1,
         "state": "READY",
         "program_counter": 0,
         "cpu_time": 500,
@@ -157,6 +165,66 @@
     }
     ```
 
+#### 1.4 更新进程状态
+根据进程ID更新其状态（支持 `NEW / READY / RUNNING / BLOCKED / TERMINATED`）。
+
+**接口地址**
+`PUT http://localhost:8080/api/v1/processes/{pid}/state`
+
+**请求参数**
+| 参数名 | 类型 | 是否必须 | 描述 |
+|--------|------|----------|------|
+| state  | string | 是 | 新状态 |
+
+**响应参数**: 返回更新后的进程对象，结构同 `1.1` 中单个进程对象。
+
+**请求示例**
+```json
+{
+  "state": "BLOCKED"
+}
+```
+
+#### 1.5 创建子进程
+与 `fork()` 类似，根据父进程 ID 创建子进程。
+
+**接口地址**
+`POST http://localhost:8080/api/v1/processes/{parent_pid}/children`
+
+**请求参数**
+与 `1.2` 创建进程相同，但可选参数 `name` 指定子进程名称。
+
+**响应参数**: 新建子进程信息，结构同 `1.1`。
+
+#### 1.6 创建进程关系
+建立两个进程之间的同步或互斥关系。
+
+**接口地址**
+`POST http://localhost:8080/api/v1/processes/relationship`
+
+**请求参数**
+| 参数名 | 类型 | 是否必须 | 描述 |
+|--------|------|----------|------|
+| pid1 | integer | 是 | 进程A |
+| pid2 | integer | 是 | 进程B |
+| relation_type | string | 是 | "SYNC" 或 "MUTEX" |
+
+**响应参数**
+无固定结构，示例：
+```json
+{
+  "status": "success",
+  "message": "Relationship created",
+  "data": {
+    "pid1": 10,
+    "pid2": 11,
+    "relation_type": "SYNC"
+  }
+}
+```
+
+> **同步 (SYNC)**: 若其中一个进程进入 `BLOCKED`，另一方也自动进入 `BLOCKED`；解除阻塞时亦会同时恢复到 `READY`。
+
 ### **2. 调度器 (Scheduler)**
 
 #### 2.0 调度器配置
@@ -199,6 +267,8 @@
       "status": "success",
       "data": {
         "pid": 2,
+        "name": "process2",
+        "parent_pid": 1,
         "state": "RUNNING",
         "program_counter": 0,
         "memory_info": [
@@ -240,6 +310,8 @@
       "data": [
         {
           "pid": 4,
+          "name": "process4",
+          "parent_pid": 2,
           "state": "READY",
           "program_counter": 0,
           "memory_info": [

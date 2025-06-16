@@ -37,21 +37,114 @@ const audio = ref<HTMLAudioElement | null>(null);
 const isLoading = ref(true);
 const error = ref<string | null>(null);
 const devices = ref<AudioDevice[]>([]);
-const processId = ref<number | null>(null);
 const showDeviceList = ref(false);
 
-// 创建进程
-const createMusicProcess = async () => {
+// 进程管理相关
+const processIds = ref<{
+  main: number | null;
+  ui: number | null;
+  player: number | null;
+  decoder: number | null;
+}>({
+  main: null,
+  ui: null,
+  player: null,
+  decoder: null
+});
+
+// 设备监控
+const deviceMonitorInterval = ref<number | null>(null);
+const currentDeviceId = ref<number | null>(null);
+
+// 创建音乐播放器进程组
+const createMusicProcessGroup = async () => {
   try {
-    const response = await processAPI.createProcess(4096, 1000, 3); // 4KB内存，1000ms CPU时间，优先级3
-    if (response.data.status === 'success') {
-      processId.value = response.data.data.pid;
-      console.log('音乐播放器进程已创建，PID:', processId.value);
+    // 1. 创建主进程
+    console.log('创建音乐播放器主进程...');
+    const mainResponse = await processAPI.createProcess(8192, 2000, 2); // 8KB内存，2000ms CPU时间，优先级2
+    if (mainResponse.data.status === 'success') {
+      processIds.value.main = mainResponse.data.data.pid;
+      console.log('音乐播放器主进程已创建，PID:', processIds.value.main);
+
+      // 2. 创建UI进程（主进程的子进程）
+      console.log('创建UI进程...');
+      const uiResponse = await processAPI.createChildProcess(
+        processIds.value.main,
+        4096, // 4KB内存
+        1000, // 1000ms CPU时间
+        3,    // 优先级3
+        'MusicPlayer-UI'
+      );
+      if (uiResponse.data.status === 'success') {
+        processIds.value.ui = uiResponse.data.data.pid;
+        console.log('UI进程已创建，PID:', processIds.value.ui);
+      }
+
+      // 3. 创建播放器进程（主进程的子进程）
+      console.log('创建播放器进程...');
+      const playerResponse = await processAPI.createChildProcess(
+        processIds.value.main,
+        6144, // 6KB内存
+        1500, // 1500ms CPU时间
+        3,    // 优先级3
+        'MusicPlayer-Player'
+      );
+      if (playerResponse.data.status === 'success') {
+        processIds.value.player = playerResponse.data.data.pid;
+        console.log('播放器进程已创建，PID:', processIds.value.player);
+      }
+
+      // 4. 创建解码器进程（主进程的子进程）
+      console.log('创建解码器进程...');
+      const decoderResponse = await processAPI.createChildProcess(
+        processIds.value.main,
+        4096, // 4KB内存
+        800,  // 800ms CPU时间
+        4,    // 优先级4
+        'MusicPlayer-Decoder'
+      );
+      if (decoderResponse.data.status === 'success') {
+        processIds.value.decoder = decoderResponse.data.data.pid;
+        console.log('解码器进程已创建，PID:', processIds.value.decoder);
+      }
+
+      // 5. 建立进程同步关系
+      await createProcessRelationships();
+
+      console.log('音乐播放器进程组创建完成');
     }
   } catch (err: any) {
-    console.error('创建音乐播放器进程失败:', err);
+    console.error('创建音乐播放器进程组失败:', err);
     console.warn('进程创建失败，将使用默认音频播放模式');
     // 不设置错误，允许音乐播放器继续工作
+  }
+};
+
+// 建立进程关系
+const createProcessRelationships = async () => {
+  try {
+    const { ui, player, decoder } = processIds.value;
+
+    if (ui && player) {
+      // UI进程和播放器进程同步关系
+      await processAPI.createProcessRelationship(ui, player, 'SYNC');
+      console.log(`已建立UI进程(${ui})和播放器进程(${player})的同步关系`);
+    }
+
+    if (player && decoder) {
+      // 播放器进程和解码器进程同步关系
+      await processAPI.createProcessRelationship(player, decoder, 'SYNC');
+      console.log(`已建立播放器进程(${player})和解码器进程(${decoder})的同步关系`);
+    }
+
+    if (ui && decoder) {
+      // UI进程和解码器进程同步关系
+      await processAPI.createProcessRelationship(ui, decoder, 'SYNC');
+      console.log(`已建立UI进程(${ui})和解码器进程(${decoder})的同步关系`);
+    }
+  } catch (err: any) {
+    console.error('建立进程关系失败:', err);
+    // 即使关系建立失败，也不阻止播放器启动
   }
 };
 
@@ -147,8 +240,8 @@ const handleDeviceSwitch = async (device: AudioDevice) => {
 
 // 申请指定的音频设备
 const requestAudioDevice = async (deviceId?: number) => {
-  // 如果没有进程ID或没有设备，仍然允许播放（使用默认音频）
-  if (!processId.value) {
+  // 如果没有播放器进程ID或没有设备，仍然允许播放（使用默认音频）
+  if (!processIds.value.player) {
     console.warn('音乐播放器进程未创建，使用默认音频播放');
     return true; // 返回true允许播放继续
   }
@@ -182,12 +275,17 @@ const requestAudioDevice = async (deviceId?: number) => {
     }
 
     // 申请设备
-    const response = await deviceAPI.requestDevice(targetDevice.device_id, processId.value);
+    const response = await deviceAPI.requestDevice(targetDevice.device_id, processIds.value.player);
     if (response.data.status === 'success') {
       playerState.currentDevice = response.data.data;
+      currentDeviceId.value = targetDevice.device_id;
       await loadAudioDevices(); // 刷新设备状态
       console.log('成功申请音频设备:', targetDevice.name);
       error.value = null;
+
+      // 启动设备监控
+      startDeviceMonitoring();
+
       return true;
     }
   } catch (err: any) {
@@ -201,21 +299,194 @@ const requestAudioDevice = async (deviceId?: number) => {
 
 // 释放音频设备
 const releaseAudioDevice = async () => {
-  if (!playerState.currentDevice || !processId.value) {
+  if (!playerState.currentDevice || !processIds.value.player) {
     // 如果没有设备或进程ID，直接清空当前设备
     playerState.currentDevice = null;
+    currentDeviceId.value = null;
     return;
   }
 
   try {
-    await deviceAPI.releaseDevice(playerState.currentDevice.device_id, processId.value);
+    await deviceAPI.releaseDevice(playerState.currentDevice.device_id, processIds.value.player);
     console.log('已释放音频设备:', playerState.currentDevice.name);
     playerState.currentDevice = null;
+    currentDeviceId.value = null;
+
+    // 停止设备监控
+    stopDeviceMonitoring();
+
     await loadAudioDevices(); // 刷新设备状态
   } catch (err: any) {
     console.error('释放音频设备失败:', err);
     // 即使释放失败，也清空当前设备引用
     playerState.currentDevice = null;
+    currentDeviceId.value = null;
+  }
+};
+
+// 启动设备监控
+const startDeviceMonitoring = () => {
+  if (deviceMonitorInterval.value) {
+    clearInterval(deviceMonitorInterval.value);
+  }
+
+  deviceMonitorInterval.value = window.setInterval(async () => {
+    await monitorCurrentDevice();
+  }, 2000); // 每2秒检查一次设备状态
+
+  console.log('设备监控已启动');
+};
+
+// 停止设备监控
+const stopDeviceMonitoring = () => {
+  if (deviceMonitorInterval.value) {
+    clearInterval(deviceMonitorInterval.value);
+    deviceMonitorInterval.value = null;
+    console.log('设备监控已停止');
+  }
+};
+
+// 监控当前设备状态
+const monitorCurrentDevice = async () => {
+  if (!currentDeviceId.value) return;
+
+  try {
+    // 获取最新的设备列表
+    const response = await deviceAPI.getDevices();
+    if (response.data.status === 'success') {
+      const currentDevice = response.data.data.find((d: AudioDevice) =>
+        d.device_id === currentDeviceId.value
+      );
+
+      if (!currentDevice) {
+        // 设备被删除了
+        console.log('检测到当前音频设备已被删除');
+        await handleDeviceRemoved();
+        return;
+      }
+
+      if (currentDevice.status === 'ERROR') {
+        // 设备出错
+        console.log('检测到当前音频设备出现错误');
+        await handleDeviceError();
+        return;
+      }
+
+      // 更新设备状态
+      if (playerState.currentDevice) {
+        playerState.currentDevice.status = currentDevice.status;
+      }
+    }
+  } catch (err: any) {
+    console.error('监控设备状态失败:', err);
+  }
+};
+
+// 处理设备被删除的情况
+const handleDeviceRemoved = async () => {
+  console.log('设备被删除，暂停播放并设置进程为阻塞状态');
+
+  // 暂停播放
+  if (playerState.isPlaying) {
+    await pausePlay();
+  }
+
+  // 清空设备引用
+  playerState.currentDevice = null;
+  currentDeviceId.value = null;
+
+  // 停止设备监控
+  stopDeviceMonitoring();
+
+  // 设置播放器进程为阻塞状态（由于同步关系，其他进程也会阻塞）
+  if (processIds.value.player) {
+    try {
+      await processAPI.updateProcessState(processIds.value.player, 'BLOCKED');
+      console.log('播放器进程已设置为阻塞状态，同步进程也将阻塞');
+
+      // 显示用户提示
+      error.value = '音频设备已断开，播放器进程已阻塞。请连接新设备以恢复播放。';
+    } catch (err: any) {
+      console.error('设置进程状态失败:', err);
+    }
+  }
+
+  // 开始监控新设备的出现
+  startNewDeviceMonitoring();
+};
+
+// 处理设备错误的情况
+const handleDeviceError = async () => {
+  console.log('设备出现错误，暂停播放');
+
+  if (playerState.isPlaying) {
+    await pausePlay();
+  }
+
+  error.value = '音频设备出现错误，播放已暂停';
+};
+
+// 监控新设备的出现
+const startNewDeviceMonitoring = () => {
+  const newDeviceInterval = setInterval(async () => {
+    try {
+      const response = await deviceAPI.getDevices();
+      if (response.data.status === 'success') {
+        // 筛选出空闲的音频设备
+        const audioKeywords = ['耳机', '音响', '音箱', '喇叭', 'speaker', 'headphone', 'audio', 'sound'];
+        const availableDevices = response.data.data.filter((device: AudioDevice) =>
+          (device.type === 'AUDIO' || audioKeywords.some(keyword =>
+            device.name.toLowerCase().includes(keyword.toLowerCase())
+          )) && device.status === 'IDLE'
+        );
+
+        if (availableDevices.length > 0) {
+          console.log('检测到新的音频设备，尝试恢复播放');
+          clearInterval(newDeviceInterval);
+          await handleNewDeviceAvailable(availableDevices[0]);
+        }
+      }
+    } catch (err: any) {
+      console.error('监控新设备失败:', err);
+    }
+  }, 3000); // 每3秒检查一次
+
+  // 60秒后停止监控（避免无限监控）
+  setTimeout(() => {
+    clearInterval(newDeviceInterval);
+    console.log('新设备监控已超时停止');
+  }, 60000);
+};
+
+// 处理新设备可用的情况
+const handleNewDeviceAvailable = async (newDevice: AudioDevice) => {
+  console.log('新设备可用，尝试恢复播放器进程状态');
+
+  try {
+    // 申请新设备
+    const success = await requestAudioDevice(newDevice.device_id);
+    if (success) {
+      // 设置播放器进程为就绪状态（由于同步关系，其他进程也会就绪）
+      if (processIds.value.player) {
+        await processAPI.updateProcessState(processIds.value.player, 'READY');
+        console.log('播放器进程已设置为就绪状态，同步进程也将就绪');
+      }
+
+      // 清除错误信息
+      error.value = null;
+
+      console.log('音频设备已连接，播放器已恢复就绪状态');
+
+      // 如果有当前歌曲，可以选择自动恢复播放
+      if (playerState.currentSong) {
+        console.log('检测到之前的播放内容，3秒后自动恢复播放');
+        setTimeout(async () => {
+          await resumePlay();
+        }, 3000);
+      }
+    }
+  } catch (err: any) {
+    console.error('恢复播放器状态失败:', err);
   }
 };
 
@@ -461,39 +732,60 @@ const checkDeviceStatus = async () => {
   }
 };
 
-// 监听组件卸载
+// 监听组件挂载
 onMounted(async () => {
   audio.value = new Audio();
   setupAudioEvents();
 
+  console.log('音乐播放器正在初始化...');
+
   // 并行加载，但不让任何一个失败阻止整个初始化
   try {
     await Promise.allSettled([
-      createMusicProcess(),
+      createMusicProcessGroup(),
       loadMusicList(),
       loadAudioDevices()
     ]);
+
+    console.log('音乐播放器初始化完成');
   } catch (err) {
     console.error('初始化过程中发生错误:', err);
   }
-
-  // 定期检查设备状态（仅当有设备时）
-  setInterval(() => {
-    if (playerState.currentDevice) {
-      checkDeviceStatus();
-    }
-  }, 5000);
 });
 
+// 组件卸载时的清理
 onUnmounted(async () => {
+  console.log('音乐播放器正在清理...');
+
+  // 停止播放并释放设备
   await stopPlay();
-  if (processId.value) {
-    try {
-      await processAPI.terminateProcess(processId.value);
-      console.log('音乐播放器进程已终止');
-    } catch (err) {
-      console.error('终止进程失败:', err);
+
+  // 停止设备监控
+  stopDeviceMonitoring();
+
+  // 终止所有进程
+  try {
+    if (processIds.value.main) {
+      await processAPI.terminateProcess(processIds.value.main);
+      console.log('音乐播放器主进程已终止');
     }
+
+    // 子进程会随着主进程自动终止，但我们也可以手动终止它们
+    const childProcesses = [processIds.value.ui, processIds.value.player, processIds.value.decoder];
+    for (const pid of childProcesses) {
+      if (pid) {
+        try {
+          await processAPI.terminateProcess(pid);
+          console.log(`子进程 ${pid} 已终止`);
+        } catch (err) {
+          console.warn(`终止子进程 ${pid} 失败:`, err);
+        }
+      }
+    }
+
+    console.log('音乐播放器进程组已完全清理');
+  } catch (err) {
+    console.error('终止进程失败:', err);
   }
 });
 </script>
@@ -505,8 +797,11 @@ onUnmounted(async () => {
       <div class="header-title">
         <span class="music-icon">🎵</span>
         <h2>在线音乐播放器</h2>
-        <div class="process-info" v-if="processId">
-          <span class="process-badge">PID: {{ processId }}</span>
+        <div class="process-info" v-if="processIds.main">
+          <span class="process-badge main">主进程: {{ processIds.main }}</span>
+          <span v-if="processIds.ui" class="process-badge ui">UI: {{ processIds.ui }}</span>
+          <span v-if="processIds.player" class="process-badge player">播放: {{ processIds.player }}</span>
+          <span v-if="processIds.decoder" class="process-badge decoder">解码: {{ processIds.decoder }}</span>
         </div>
       </div>
 
@@ -710,14 +1005,34 @@ onUnmounted(async () => {
 
 .process-info {
   margin-top: 4px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
 .process-badge {
-  background: rgba(255, 255, 255, 0.2);
   padding: 2px 8px;
   border-radius: 12px;
   font-size: 0.75em;
   font-weight: 500;
+  color: white;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.process-badge.main {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.process-badge.ui {
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+}
+
+.process-badge.player {
+  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+}
+
+.process-badge.decoder {
+  background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
 }
 
 .device-selector {

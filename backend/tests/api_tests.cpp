@@ -11,6 +11,7 @@ void run_filesystem_tests();
 void run_device_api_tests();
 void run_interrupt_api_tests();
 void run_clock_api_tests();
+void run_relationship_test();
 
 void wait_for_server(httplib::Client& cli) {
     std::cout << "Waiting for the server to initialize..." << std::endl;
@@ -40,6 +41,7 @@ int main() {
         run_device_api_tests();
         run_interrupt_api_tests();
         run_clock_api_tests();
+        run_relationship_test();
 
         std::cout << "\n\n========================================" << std::endl;
         std::cout << "  ALL API TESTS PASSED SUCCESSFULLY!  " << std::endl;

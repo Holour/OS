@@ -10,6 +10,7 @@ interface MemoryBlock {
 interface Process {
   pid: number;
   name?: string;
+  parent_pid?: number;
   state: string;
   program_counter: number;
   cpu_time?: number;
@@ -36,6 +37,27 @@ const error = ref<string | null>(null);
 const newProcessSize = ref(1024);
 const newProcessCPUTime = ref(10);
 const newProcessPriority = ref(5);
+
+// 新增功能相关变量
+const selectedProcessForState = ref<number | null>(null);
+const newProcessState = ref('READY');
+const selectedParentProcess = ref<number | null>(null);
+const childProcessName = ref('');
+const childProcessSize = ref(1024);
+const childProcessCPUTime = ref(10);
+const childProcessPriority = ref(5);
+const process1ForRelation = ref<number | null>(null);
+const process2ForRelation = ref<number | null>(null);
+const relationshipType = ref<'SYNC' | 'MUTEX'>('SYNC');
+
+const processStates = ['NEW', 'READY', 'RUNNING', 'BLOCKED', 'TERMINATED'];
+
+// 对话框显示状态
+const showCreateProcessDialog = ref(false);
+const showUpdateStateDialog = ref(false);
+const showCreateChildDialog = ref(false);
+const showCreateRelationDialog = ref(false);
+
 let intervalId: number;
 
 const schedulerConfig = ref<SchedulerConfig>({ algorithm: 'FCFS', time_slice: 1 });
@@ -157,6 +179,7 @@ const createProcess = async () => {
     newProcessPriority.value = 5;
     fetchProcesses();
     alert('进程创建成功！');
+    showCreateProcessDialog.value = false;
   } catch (err: any) {
     error.value = err.message || 'Failed to create process';
   }
@@ -197,6 +220,90 @@ const executeTick = async () => {
   }
 };
 
+// 更新进程状态
+const updateProcessState = async () => {
+  if (!selectedProcessForState.value) {
+    alert('请选择要更新状态的进程');
+    return;
+  }
+
+  try {
+    await processAPI.updateProcessState(selectedProcessForState.value, newProcessState.value);
+    await fetchProcesses();
+    alert(`进程 ${selectedProcessForState.value} 状态已更新为 ${newProcessState.value}`);
+    selectedProcessForState.value = null;
+    showUpdateStateDialog.value = false;
+  } catch (err: any) {
+    error.value = err.message || 'Failed to update process state';
+  }
+};
+
+// 创建子进程
+const createChildProcess = async () => {
+  if (!selectedParentProcess.value) {
+    alert('请选择父进程');
+    return;
+  }
+
+  if (childProcessSize.value <= 0) {
+    alert('请输入有效的内存大小');
+    return;
+  }
+
+  try {
+    await processAPI.createChildProcess(
+      selectedParentProcess.value,
+      childProcessSize.value,
+      childProcessCPUTime.value,
+      childProcessPriority.value,
+      childProcessName.value || undefined
+    );
+
+    // 重置表单
+    selectedParentProcess.value = null;
+    childProcessName.value = '';
+    childProcessSize.value = 1024;
+    childProcessCPUTime.value = 10;
+    childProcessPriority.value = 5;
+
+    await fetchProcesses();
+    alert('子进程创建成功！');
+    showCreateChildDialog.value = false;
+  } catch (err: any) {
+    error.value = err.message || 'Failed to create child process';
+  }
+};
+
+// 创建进程关系
+const createProcessRelationship = async () => {
+  if (!process1ForRelation.value || !process2ForRelation.value) {
+    alert('请选择两个进程来建立关系');
+    return;
+  }
+
+  if (process1ForRelation.value === process2ForRelation.value) {
+    alert('不能为同一个进程建立关系');
+    return;
+  }
+
+  try {
+    await processAPI.createProcessRelationship(
+      process1ForRelation.value,
+      process2ForRelation.value,
+      relationshipType.value
+    );
+
+    // 重置表单
+    process1ForRelation.value = null;
+    process2ForRelation.value = null;
+
+    alert(`已建立 ${relationshipType.value} 关系！`);
+    showCreateRelationDialog.value = false;
+  } catch (err: any) {
+    error.value = err.message || 'Failed to create process relationship';
+  }
+};
+
 onUnmounted(() => {
   clearInterval(intervalId);
 });
@@ -229,14 +336,22 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <div class="create-process">
-      <h3>创建新进程</h3>
-      <div class="create-form">
-        <input v-model.number="newProcessSize" type="number" placeholder="内存大小 (bytes)" min="1" />
-        <input v-model.number="newProcessCPUTime" type="number" placeholder="CPU 时间 (ms)" min="1" />
-        <input v-model.number="newProcessPriority" type="number" placeholder="优先级 (数字越小越高)" min="1" />
-        <button @click="createProcess">创建</button>
-      </div>
+
+
+    <!-- 功能按钮区域 -->
+    <div class="feature-buttons">
+      <button @click="showCreateProcessDialog = true" class="feature-btn create-btn">
+        ➕ 创建新进程
+      </button>
+      <button @click="showUpdateStateDialog = true" class="feature-btn state-btn">
+        🔄 更新进程状态
+      </button>
+      <button @click="showCreateChildDialog = true" class="feature-btn child-btn">
+        👥 创建子进程
+      </button>
+      <button @click="showCreateRelationDialog = true" class="feature-btn relation-btn">
+        🔗 创建进程关系
+      </button>
     </div>
 
     <div v-if="isLoading" class="loading">加载进程中...</div>
@@ -248,6 +363,8 @@ onUnmounted(() => {
           <thead>
             <tr>
               <th>PID</th>
+              <th>进程名</th>
+              <th>父PID</th>
               <th>状态</th>
               <th>程序计数器</th>
               <th>CPU 时间 (ms)</th>
@@ -261,7 +378,9 @@ onUnmounted(() => {
           <tbody>
             <tr v-for="proc in processes" :key="proc.pid">
               <td>{{ proc.pid }}</td>
-              <td>{{ proc.state }}</td>
+              <td>{{ proc.name || 'N/A' }}</td>
+              <td>{{ proc.parent_pid === -1 ? '根进程' : (proc.parent_pid || 'N/A') }}</td>
+              <td :class="'state-' + proc.state.toLowerCase()">{{ proc.state }}</td>
               <td>{{ proc.program_counter }}</td>
               <td>{{ proc.cpu_time || 'N/A' }}</td>
               <td>{{ proc.priority ?? 'N/A' }}</td>
@@ -328,6 +447,176 @@ onUnmounted(() => {
           <div class="empty-icon">📊</div>
           <div>暂无甘特图数据</div>
           <div class="empty-tip">请先创建进程并运行调度器</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 创建新进程对话框 -->
+    <div v-if="showCreateProcessDialog" class="dialog-overlay" @click="showCreateProcessDialog = false">
+      <div class="dialog" @click.stop>
+        <div class="dialog-header">
+          <h3>创建新进程</h3>
+          <button @click="showCreateProcessDialog = false" class="close-btn">×</button>
+        </div>
+        <div class="dialog-body">
+          <div class="form-group">
+            <label for="process-memory">内存大小（字节）：</label>
+            <input id="process-memory" v-model.number="newProcessSize" type="number" min="1" placeholder="例如：1024" />
+          </div>
+          <div class="form-group">
+            <label for="process-cpu">CPU时间（毫秒）：</label>
+            <input id="process-cpu" v-model.number="newProcessCPUTime" type="number" min="1" placeholder="例如：10" />
+          </div>
+          <div class="form-group">
+            <label for="process-priority">优先级：</label>
+            <input id="process-priority" v-model.number="newProcessPriority" type="number" min="1" placeholder="数字越小优先级越高，例如：5" />
+          </div>
+          <div class="form-help">
+            <p>进程创建说明：</p>
+            <ul>
+              <li><strong>内存大小</strong>：进程占用的内存空间，单位为字节</li>
+              <li><strong>CPU时间</strong>：进程需要的CPU执行时间，单位为毫秒</li>
+              <li><strong>优先级</strong>：进程的调度优先级，数字越小优先级越高</li>
+            </ul>
+            <p>创建的进程将自动分配PID并进入NEW状态，等待调度器调度。</p>
+          </div>
+        </div>
+        <div class="dialog-footer">
+          <button @click="showCreateProcessDialog = false" class="cancel-btn">取消</button>
+          <button @click="createProcess" class="confirm-btn">创建进程</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 更新进程状态对话框 -->
+    <div v-if="showUpdateStateDialog" class="dialog-overlay" @click="showUpdateStateDialog = false">
+      <div class="dialog" @click.stop>
+        <div class="dialog-header">
+          <h3>更新进程状态</h3>
+          <button @click="showUpdateStateDialog = false" class="close-btn">×</button>
+        </div>
+        <div class="dialog-body">
+          <div class="form-group">
+            <label for="process-select">选择进程：</label>
+            <select id="process-select" v-model="selectedProcessForState">
+              <option value="">请选择要更新状态的进程</option>
+              <option v-for="proc in processes" :key="proc.pid" :value="proc.pid">
+                PID {{ proc.pid }} - {{ proc.name || '未命名' }} (当前状态: {{ proc.state }})
+              </option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="new-state">新状态：</label>
+            <select id="new-state" v-model="newProcessState">
+              <option v-for="state in processStates" :key="state" :value="state">{{ state }}</option>
+            </select>
+          </div>
+          <div class="form-help">
+            <p>状态说明：</p>
+            <ul>
+              <li><strong>NEW</strong>：新建状态，进程刚创建</li>
+              <li><strong>READY</strong>：就绪状态，等待CPU分配</li>
+              <li><strong>RUNNING</strong>：运行状态，正在占用CPU</li>
+              <li><strong>BLOCKED</strong>：阻塞状态，等待I/O或资源</li>
+              <li><strong>TERMINATED</strong>：终止状态，进程结束</li>
+            </ul>
+          </div>
+        </div>
+        <div class="dialog-footer">
+          <button @click="showUpdateStateDialog = false" class="cancel-btn">取消</button>
+          <button @click="updateProcessState" class="confirm-btn">更新状态</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 创建子进程对话框 -->
+    <div v-if="showCreateChildDialog" class="dialog-overlay" @click="showCreateChildDialog = false">
+      <div class="dialog" @click.stop>
+        <div class="dialog-header">
+          <h3>创建子进程</h3>
+          <button @click="showCreateChildDialog = false" class="close-btn">×</button>
+        </div>
+        <div class="dialog-body">
+          <div class="form-group">
+            <label for="parent-process">选择父进程：</label>
+            <select id="parent-process" v-model="selectedParentProcess">
+              <option value="">请选择作为父进程的进程</option>
+              <option v-for="proc in processes" :key="proc.pid" :value="proc.pid">
+                PID {{ proc.pid }} - {{ proc.name || '未命名' }}
+              </option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="child-name">子进程名称：</label>
+            <input id="child-name" v-model="childProcessName" type="text" placeholder="输入子进程名称（可选）" />
+          </div>
+          <div class="form-group">
+            <label for="child-memory">内存大小（字节）：</label>
+            <input id="child-memory" v-model.number="childProcessSize" type="number" min="1" placeholder="例如：4096" />
+          </div>
+          <div class="form-group">
+            <label for="child-cpu">CPU时间（毫秒）：</label>
+            <input id="child-cpu" v-model.number="childProcessCPUTime" type="number" min="1" placeholder="例如：1000" />
+          </div>
+          <div class="form-group">
+            <label for="child-priority">优先级：</label>
+            <input id="child-priority" v-model.number="childProcessPriority" type="number" min="1" placeholder="数字越小优先级越高，例如：5" />
+          </div>
+          <div class="form-help">
+            <p>说明：子进程将继承父进程的某些属性，并在父进程终止时自动终止。</p>
+          </div>
+        </div>
+        <div class="dialog-footer">
+          <button @click="showCreateChildDialog = false" class="cancel-btn">取消</button>
+          <button @click="createChildProcess" class="confirm-btn">创建子进程</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 创建进程关系对话框 -->
+    <div v-if="showCreateRelationDialog" class="dialog-overlay" @click="showCreateRelationDialog = false">
+      <div class="dialog" @click.stop>
+        <div class="dialog-header">
+          <h3>创建进程关系</h3>
+          <button @click="showCreateRelationDialog = false" class="close-btn">×</button>
+        </div>
+        <div class="dialog-body">
+          <div class="form-group">
+            <label for="process1">选择进程1：</label>
+            <select id="process1" v-model="process1ForRelation">
+              <option value="">请选择第一个进程</option>
+              <option v-for="proc in processes" :key="proc.pid" :value="proc.pid">
+                PID {{ proc.pid }} - {{ proc.name || '未命名' }}
+              </option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="process2">选择进程2：</label>
+            <select id="process2" v-model="process2ForRelation">
+              <option value="">请选择第二个进程</option>
+              <option v-for="proc in processes" :key="proc.pid" :value="proc.pid">
+                PID {{ proc.pid }} - {{ proc.name || '未命名' }}
+              </option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="relation-type">关系类型：</label>
+            <select id="relation-type" v-model="relationshipType">
+              <option value="SYNC">同步关系 (SYNC)</option>
+              <option value="MUTEX">互斥关系 (MUTEX)</option>
+            </select>
+          </div>
+          <div class="form-help">
+            <p>关系类型说明：</p>
+            <ul>
+              <li><strong>同步关系 (SYNC)</strong>：一个进程状态改变时，另一个进程状态也会同步改变</li>
+              <li><strong>互斥关系 (MUTEX)</strong>：两个进程不能同时访问共享资源</li>
+            </ul>
+          </div>
+        </div>
+        <div class="dialog-footer">
+          <button @click="showCreateRelationDialog = false" class="cancel-btn">取消</button>
+          <button @click="createProcessRelationship" class="confirm-btn">建立关系</button>
         </div>
       </div>
     </div>
@@ -884,4 +1173,254 @@ th {
   0%, 100% { opacity: 0.3; }
   50% { opacity: 0.8; }
 }
+
+/* 功能按钮区域样式 */
+.feature-buttons {
+  background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+  border-bottom: 1px solid #e1e5e9;
+  padding: 16px 20px;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.feature-btn {
+  padding: 10px 20px;
+  font-size: 14px;
+  color: #ffffff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 140px;
+  justify-content: center;
+}
+
+.feature-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.2);
+}
+
+.state-btn {
+  background: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%);
+}
+
+.state-btn:hover {
+  background: linear-gradient(135deg, #5f3dc4 0%, #6c5ce7 100%);
+}
+
+.child-btn {
+  background: linear-gradient(135deg, #fd79a8 0%, #fdcb6e 100%);
+}
+
+.child-btn:hover {
+  background: linear-gradient(135deg, #e84393 0%, #fd79a8 100%);
+}
+
+.relation-btn {
+  background: linear-gradient(135deg, #00b894 0%, #00cec9 100%);
+}
+
+.relation-btn:hover {
+  background: linear-gradient(135deg, #00a085 0%, #00b894 100%);
+}
+
+.create-btn {
+  background: linear-gradient(135deg, #0078d4 0%, #005a9e 100%);
+}
+
+.create-btn:hover {
+  background: linear-gradient(135deg, #005a9e 0%, #004578 100%);
+}
+
+/* 对话框样式 */
+.dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.dialog {
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  width: 90%;
+  max-width: 500px;
+  max-height: 80vh;
+  overflow-y: auto;
+  animation: dialogSlideIn 0.3s ease;
+}
+
+@keyframes dialogSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px;
+  border-bottom: 1px solid #e1e5e9;
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+}
+
+.dialog-header h3 {
+  margin: 0;
+  color: #323130;
+  font-weight: 600;
+  font-size: 18px;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  font-size: 24px;
+  color: #605e5c;
+  cursor: pointer;
+  padding: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: all 0.2s ease;
+}
+
+.close-btn:hover {
+  background: rgba(0, 0, 0, 0.1);
+  color: #323130;
+}
+
+.dialog-body {
+  padding: 20px;
+}
+
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 600;
+  color: #323130;
+  font-size: 14px;
+}
+
+.form-group select,
+.form-group input {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 14px;
+  color: #323130;
+  border: 2px solid #e1e5e9;
+  border-radius: 6px;
+  background: #ffffff;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+}
+
+.form-group select:focus,
+.form-group input:focus {
+  outline: none;
+  border-color: #0078d4;
+  box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.2);
+}
+
+.form-help {
+  margin-top: 16px;
+  padding: 12px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  border-left: 4px solid #0078d4;
+}
+
+.form-help p {
+  margin: 0 0 8px 0;
+  font-weight: 600;
+  color: #323130;
+}
+
+.form-help ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.form-help li {
+  margin-bottom: 4px;
+  font-size: 13px;
+  color: #605e5c;
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 20px;
+  border-top: 1px solid #e1e5e9;
+  background: #f8f9fa;
+}
+
+.cancel-btn,
+.confirm-btn {
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-width: 80px;
+}
+
+.cancel-btn {
+  background: #f3f2f1;
+  color: #323130;
+  border: 1px solid #e1dfdd;
+}
+
+.cancel-btn:hover {
+  background: #e1dfdd;
+}
+
+.confirm-btn {
+  background: linear-gradient(135deg, #0078d4 0%, #106abe 100%);
+  color: #ffffff;
+}
+
+.confirm-btn:hover {
+  background: linear-gradient(135deg, #106abe 0%, #005a9e 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 120, 212, 0.3);
+}
+
+
+
+/* 进程状态样式 */
+.state-new { color: #8a8886; font-weight: 600; }
+.state-ready { color: #0078d4; font-weight: 600; }
+.state-running { color: #107c10; font-weight: 600; }
+.state-blocked { color: #d83b01; font-weight: 600; }
+.state-terminated { color: #605e5c; font-weight: 600; }
 </style>

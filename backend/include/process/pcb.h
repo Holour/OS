@@ -4,6 +4,7 @@
 #include "../common.h"
 #include <vector>
 #include <cstdint>
+#include <string>
 
 // 内存块信息
 struct MemoryBlock {
@@ -27,13 +28,16 @@ public:
     uint64_t remaining_time;     // 剩余 CPU 时间（调度用）
     uint32_t priority;           // 数字越小优先级越高
     uint64_t creation_time;      // 创建时间（毫秒 since epoch）
+    std::string name;            // 进程名称
+    ProcessID parent_pid;        // 父进程 ID（-1 表示无父进程 / 系统进程）
     // 可以添加寄存器等上下文信息
     // ...
 
     std::vector<MemoryBlock> memory_info; // 进程占用的内存块
 
     PCB()
-        : pid(-1), state(ProcessState::NEW), program_counter(0), cpu_time(0), remaining_time(0), priority(0), creation_time(0) {}
+        : pid(-1), state(ProcessState::NEW), program_counter(0), cpu_time(0), remaining_time(0), priority(0), creation_time(0),
+          name(""), parent_pid(-1) {}
 };
 
 #endif //PCB_H 

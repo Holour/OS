@@ -15,6 +15,7 @@ export interface WindowState {
   originalPosition?: { x: number; y: number };
   originalSize?: { width: number; height: number };
   zIndex: number;
+  wasMaximizedBeforeMinimize?: boolean;
 }
 
 export const useWindowsStore = defineStore('windows', {
@@ -155,6 +156,9 @@ export const useWindowsStore = defineStore('windows', {
     minimizeWindow(id: string) {
         const win = this.windows.find(w => w.id === id);
         if (win && !win.isMinimized) {
+            // 记录最小化前是否为最大化
+            win.wasMaximizedBeforeMinimize = win.isMaximized;
+
             win.isMinimized = true;
             win.isActive = false;
             win.isFocused = false;
@@ -213,6 +217,14 @@ export const useWindowsStore = defineStore('windows', {
         const win = this.windows.find(w => w.id === id);
         if (win && win.isMinimized) {
             win.isMinimized = false;
+
+            // 如果最小化前是最大化状态，但现在尚未最大化，则再次最大化
+            if (win.wasMaximizedBeforeMinimize && !win.isMaximized) {
+                this.maximizeWindow(id);
+            }
+            // 清理标志
+            win.wasMaximizedBeforeMinimize = false;
+
             this.focusWindow(id);
         }
     },

@@ -3,6 +3,8 @@
 #include <iostream>
 #include <chrono>
 #include <deque>
+#include <unordered_set>
+#include <functional>
 
 ProcessManager::ProcessManager(MemoryManager& mem_manager)
     : memory_manager(mem_manager), next_pid(1), current_running_process(nullptr) {}
@@ -23,6 +25,11 @@ uint64_t ProcessManager::get_time_slice() const {
 }
 
 std::optional<ProcessID> ProcessManager::create_process(uint64_t size, uint64_t cpu_time, uint32_t priority) {
+    // 调用带名称版本，使用默认空名称和无父进程
+    return create_process("", size, cpu_time, priority, -1);
+}
+
+std::optional<ProcessID> ProcessManager::create_process(const std::string& name, uint64_t size, uint64_t cpu_time, uint32_t priority, ProcessID parent_pid) {
     if (size == 0) {
         return std::nullopt;
     }
@@ -31,22 +38,30 @@ std::optional<ProcessID> ProcessManager::create_process(uint64_t size, uint64_t 
     auto block_opt = memory_manager.allocate_for_process(new_pid, size);
     if (!block_opt) {
         next_pid--; // 回退PID
-        return std::nullopt; // Not enough memory
+        return std::nullopt; // 内存不足
     }
 
     auto pcb = std::make_shared<PCB>();
     pcb->pid = new_pid;
     pcb->state = ProcessState::READY;
     pcb->memory_info.push_back(block_opt.value());
-    
     pcb->cpu_time = cpu_time;
     pcb->remaining_time = cpu_time;
     pcb->priority = priority;
     pcb->creation_time = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count());
+    pcb->name = name.empty() ? ("process_" + std::to_string(new_pid)) : name;
+    pcb->parent_pid = parent_pid;
 
-    // 对于分区(PARTITIONED)或分页(PAGED)策略, 需要重新获取并覆盖首地址;
-    // 连续分配(CONTINUOUS)策略下, allocate_for_process 已经返回了正确的 base_address, 无需覆盖
+    // 挂载到父进程的子进程列表（如果需要）
+    if (parent_pid != -1) {
+        auto parent_pcb = get_process(parent_pid);
+        if (parent_pcb) {
+            // 目前仅在内部记录 parent_pid 字段即可
+        }
+    }
+
+    // 根据策略覆盖 base 地址
     auto current_strategy = memory_manager.get_allocation_strategy();
     if (current_strategy != MemoryAllocationStrategy::CONTINUOUS) {
         uint64_t base_address = memory_manager.get_process_base_address(new_pid);
@@ -59,6 +74,75 @@ std::optional<ProcessID> ProcessManager::create_process(uint64_t size, uint64_t 
     ready_queue.push_back(pcb);
 
     return pcb->pid;
+}
+
+std::optional<ProcessID> ProcessManager::create_child_process(ProcessID parent_pid, const std::string& child_name, uint64_t size, uint64_t cpu_time, uint32_t priority) {
+    // 调用带名称的新建进程接口，提供 parent_pid
+    return create_process(child_name, size, cpu_time, priority, parent_pid);
+}
+
+bool ProcessManager::update_process_state(ProcessID pid, ProcessState new_state) {
+    std::unordered_set<ProcessID> visited;
+    std::function<void(ProcessID, ProcessState)> dfs = [&](ProcessID cur, ProcessState state){
+        if (visited.count(cur)) return;
+        visited.insert(cur);
+
+        // ----- 本进程状态变更逻辑（源自旧实现） -----
+        auto pcb = get_process(cur);
+        if (!pcb) return;
+
+        // 若状态未变更则跳过
+        if (pcb->state == state) {
+            // 但仍需传播
+        } else {
+            // 从旧队列移除
+            switch (pcb->state) {
+                case ProcessState::READY: {
+                    ready_queue.erase(std::remove_if(ready_queue.begin(), ready_queue.end(), [&](const std::shared_ptr<PCB>& p){return p->pid==cur;}), ready_queue.end());
+                    break; }
+                case ProcessState::BLOCKED: {
+                    blocked_processes.remove_if([&](const std::shared_ptr<PCB>& p){return p->pid==cur;});
+                    break; }
+                case ProcessState::RUNNING: {
+                    if (current_running_process && current_running_process->pid==cur) current_running_process=nullptr;
+                    break; }
+                default: break;
+            }
+
+            // 加入新队列
+            pcb->state = state;
+            if (state==ProcessState::READY) {
+                ready_queue.push_back(pcb);
+            } else if (state==ProcessState::BLOCKED) {
+                blocked_processes.push_back(pcb);
+            } else if (state==ProcessState::RUNNING) {
+                current_running_process = pcb;
+            }
+        }
+
+        // ----- 传播 -----
+        auto range = relations_.equal_range(cur);
+        for (auto it = range.first; it != range.second; ++it) {
+            const auto& [other_pid, rtype] = it->second;
+            if (rtype == RelationType::SYNC) {
+                // 对于同步关系，仅在 BLOCKED 与 READY 状态传播（TERMINATED 不传播）
+                if (state==ProcessState::BLOCKED || state==ProcessState::READY) {
+                    dfs(other_pid, state);
+                }
+            }
+        }
+    };
+
+    dfs(pid, new_state);
+
+    return visited.size() > 0;
+}
+
+bool ProcessManager::create_process_relationship(ProcessID pid1, ProcessID pid2, RelationType type) {
+    if (!get_process(pid1) || !get_process(pid2)) return false;
+    relations_.insert({pid1, {pid2, type}});
+    relations_.insert({pid2, {pid1, type}});
+    return true;
 }
 
 bool ProcessManager::terminate_process(ProcessID pid) {
@@ -155,55 +239,11 @@ std::shared_ptr<PCB> ProcessManager::schedule() {
 }
 
 bool ProcessManager::block_process(ProcessID pid) {
-    // Find in running process
-    if (current_running_process && current_running_process->pid == pid) {
-        auto pcb = current_running_process;
-        pcb->state = ProcessState::BLOCKED;
-        blocked_processes.push_back(pcb);
-        current_running_process = nullptr;
-        // After blocking the current process, immediately schedule the next one
-        schedule();
-        return true;
-    }
-
-    // Find in ready queue
-    bool found = false;
-    std::shared_ptr<PCB> pcb_to_block = nullptr;
-    std::deque<std::shared_ptr<PCB>> new_ready_queue;
-    for (const auto& p : ready_queue) {
-        if (p->pid == pid) {
-            found = true;
-            pcb_to_block = p;
-        } else {
-            new_ready_queue.push_back(p);
-        }
-    }
-    ready_queue.swap(new_ready_queue);
-
-    if (found) {
-        pcb_to_block->state = ProcessState::BLOCKED;
-        blocked_processes.push_back(pcb_to_block);
-        return true;
-    }
-
-    return false; // Process not found in ready or running state
+    return update_process_state(pid, ProcessState::BLOCKED);
 }
 
 bool ProcessManager::wakeup_process(ProcessID pid) {
-    auto it = std::find_if(blocked_processes.begin(), blocked_processes.end(), 
-        [pid](const std::shared_ptr<PCB>& pcb){
-            return pcb->pid == pid;
-        });
-
-    if (it != blocked_processes.end()) {
-        auto pcb = *it;
-        pcb->state = ProcessState::READY;
-        ready_queue.push_back(pcb);
-        blocked_processes.erase(it);
-        return true;
-    }
-
-    return false; // Process not found in blocked queue
+    return update_process_state(pid, ProcessState::READY);
 }
 
 // --- Methods for UI/API ---

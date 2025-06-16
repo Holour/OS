@@ -45,6 +45,7 @@ set(API_TEST_SOURCES
     tests/device_api_test.cpp
     tests/interrupt_api_test.cpp
     tests/clock_api_test.cpp
+    tests/relationship_api_test.cpp
 )
 
 # 创建测试可执行文件

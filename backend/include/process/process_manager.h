@@ -15,7 +15,7 @@ class ProcessManager {
 public:
     explicit ProcessManager(MemoryManager& mem_manager);
 
-    std::optional<ProcessID> create_process(uint64_t size, uint64_t cpu_time, uint32_t priority);
+    std::optional<ProcessID> create_process(const std::string& name, uint64_t size, uint64_t cpu_time, uint32_t priority, ProcessID parent_pid = -1);
     // 旧接口兼容
     std::optional<ProcessID> create_process(uint64_t size) { return create_process(size, 10, 5); }
     bool terminate_process(ProcessID pid);
@@ -46,6 +46,19 @@ public:
     struct GanttEntry { ProcessID pid; uint64_t start; uint64_t end; };
     std::vector<GanttEntry> generate_gantt_chart() const;
 
+    // 创建子进程（fork 风格），继承父进程部分属性
+    std::optional<ProcessID> create_child_process(ProcessID parent_pid, const std::string& child_name, uint64_t size, uint64_t cpu_time, uint32_t priority);
+
+    // 进程状态更新
+    bool update_process_state(ProcessID pid, ProcessState new_state);
+
+    // 进程关系类型
+    enum class RelationType { SYNC, MUTEX };
+    bool create_process_relationship(ProcessID pid1, ProcessID pid2, RelationType type);
+
+    // 基础接口（保持向后兼容）
+    std::optional<ProcessID> create_process(uint64_t size, uint64_t cpu_time, uint32_t priority);
+
 private:
     MemoryManager& memory_manager;
     ProcessID next_pid;
@@ -58,4 +71,7 @@ private:
     // 调度算法
     SchedulingAlgorithm algorithm_ = SchedulingAlgorithm::FCFS;
     uint64_t time_slice_ = 1;
+
+    // 进程关系映射: pid -> (另一端 pid, 关系类型)
+    std::multimap<ProcessID, std::pair<ProcessID, RelationType>> relations_;
 }; 
