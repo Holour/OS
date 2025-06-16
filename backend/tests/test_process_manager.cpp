@@ -1,128 +1,94 @@
-#include "../include/process/process_manager.h"
-#include "../include/memory/memory_manager.h"
-#include "../include/common.h"
-#include <iostream>
-#include <cassert>
+#include "process/process_manager.h"
+#include "memory/memory_manager.h"
+#include "test_common.h"
 
-void test_create_process_success(ProcessManager& pm, MemoryManager& mm) {
-    std::cout << "--- Running Test: Create Process Success ---" << std::endl;
+void test_pm_create_process_success() {
+    std::cout << "  - Testing PM Create Process Success..." << std::endl;
+    MemoryManager mm;
+    mm.initialize();
+    ProcessManager pm(mm);
+
     uint64_t initial_used_memory = mm.get_used_memory();
-    uint64_t initial_ready_queue_size = pm.get_ready_queue().size();
     
-    auto pid_opt = pm.create_process(1024);
-    assert(pid_opt.has_value());
-    auto pcb = pm.get_process(*pid_opt).get();
-    assert(pcb != nullptr);
-    assert(pcb->state == ProcessState::READY);
-    assert(pm.get_all_processes().size() == 1);
-    assert(mm.get_used_memory() > initial_used_memory);
-    assert(pm.get_ready_queue().size() == initial_ready_queue_size + 1);
+    auto pid_opt = pm.create_process("test_proc", 1024, 10, 5);
+    ASSERT_TRUE(pid_opt.has_value());
+    auto pcb_ptr = pm.get_process(*pid_opt);
+    ASSERT_NOT_NULL(pcb_ptr);
+    ASSERT_EQUAL(static_cast<int>(pcb_ptr->state), static_cast<int>(ProcessState::READY));
+    ASSERT_EQUAL(pm.get_all_processes().size(), 1);
+    ASSERT_TRUE(mm.get_used_memory() > initial_used_memory);
     
-    std::cout << "OK: Process created with PID " << pcb->pid << ", state is READY, and added to ready_queue." << std::endl;
+    std::cout << "    ...PASSED" << std::endl;
 }
 
-void test_create_process_oom(ProcessManager& pm, MemoryManager& mm) {
-    std::cout << "--- Running Test: Create Process Out of Memory ---" << std::endl;
-    uint64_t initial_process_count = pm.get_all_processes().size();
-    uint64_t initial_used_memory = mm.get_used_memory();
-
-    auto pid_opt = pm.create_process(MEMORY_SIZE + 1);
-    assert(!pid_opt.has_value());
-    assert(pm.get_all_processes().size() == initial_process_count);
-    assert(mm.get_used_memory() == initial_used_memory); // Memory usage should not change
+void test_pm_create_process_oom() {
+    std::cout << "  - Testing PM Create Process Out of Memory..." << std::endl;
+    MemoryManager mm;
+    mm.initialize();
+    ProcessManager pm(mm);
     
-    std::cout << "OK: Process creation failed as expected due to OOM." << std::endl;
+    const uint64_t total_mem = mm.get_total_memory();
+    auto pid_opt = pm.create_process("oom_proc", total_mem + 1, 10, 5);
+    ASSERT_FALSE(pid_opt.has_value());
+    ASSERT_EQUAL(pm.get_all_processes().size(), 0);
+    
+    std::cout << "    ...PASSED" << std::endl;
 }
 
-void test_terminate_process_success(ProcessManager& pm, MemoryManager& mm) {
-    std::cout << "--- Running Test: Terminate Process Success ---" << std::endl;
-    auto pid_opt2 = pm.create_process(2048);
-    assert(pid_opt2.has_value());
-    auto pcb2 = pm.get_process(*pid_opt2).get();
-    auto pid_to_terminate = pcb2->pid;
+void test_pm_terminate_process() {
+    std::cout << "  - Testing PM Terminate Process..." << std::endl;
+    MemoryManager mm;
+    mm.initialize();
+    ProcessManager pm(mm);
+
+    auto pid_opt = pm.create_process("to_terminate", 2048, 10, 5);
+    ASSERT_TRUE(pid_opt.has_value());
+    ProcessID pid_to_terminate = *pid_opt;
     uint64_t memory_before_termination = mm.get_used_memory();
-    uint64_t initial_ready_queue_size = pm.get_ready_queue().size();
 
     bool result = pm.terminate_process(pid_to_terminate);
-    assert(result == true);
-    assert(pm.get_all_processes().count(pid_to_terminate) == 0);
-    assert(mm.get_used_memory() < memory_before_termination);
-    assert(pm.get_ready_queue().size() == initial_ready_queue_size - 1);
+    ASSERT_TRUE(result);
+    ASSERT_NULL(pm.get_process(pid_to_terminate));
+    ASSERT_TRUE(mm.get_used_memory() < memory_before_termination);
     
-    std::cout << "OK: Process " << pid_to_terminate << " terminated, removed from queues and memory was freed." << std::endl;
+    // Test terminating non-existent process
+    bool non_existent_result = pm.terminate_process(9999);
+    ASSERT_FALSE(non_existent_result);
+
+    std::cout << "    ...PASSED" << std::endl;
 }
 
-void test_terminate_nonexistent_process(ProcessManager& pm) {
-    std::cout << "--- Running Test: Terminate Non-existent Process ---" << std::endl;
-    pid_t non_existent_pid = 9999; // A PID that is unlikely to exist
-    bool result = pm.terminate_process(non_existent_pid);
-    assert(result == false);
+void test_pm_scheduler_fcfs() {
+    std::cout << "  - Testing PM Scheduler (FCFS)..." << std::endl;
+    MemoryManager mm;
+    mm.initialize();
+    ProcessManager pm(mm);
+    pm.set_algorithm(SchedulingAlgorithm::FCFS);
 
-    std::cout << "OK: Terminating non-existent process failed as expected." << std::endl;
+    auto pidA_opt = pm.create_process("A", 100, 10, 1);
+    auto pidB_opt = pm.create_process("B", 100, 10, 1);
+    ASSERT_TRUE(pidA_opt.has_value() && pidB_opt.has_value());
+    
+    auto scheduled_p1 = pm.schedule();
+    ASSERT_NOT_NULL(scheduled_p1);
+    ASSERT_EQUAL(scheduled_p1->pid, pidA_opt.value());
+    ASSERT_EQUAL(static_cast<int>(scheduled_p1->state), static_cast<int>(ProcessState::RUNNING));
+    
+    auto scheduled_p2 = pm.schedule();
+    ASSERT_NOT_NULL(scheduled_p2);
+    ASSERT_EQUAL(scheduled_p2->pid, pidB_opt.value());
+    ASSERT_EQUAL(static_cast<int>(scheduled_p2->state), static_cast<int>(ProcessState::RUNNING));
+
+    // No more processes in ready queue
+    auto should_be_null = pm.schedule();
+    ASSERT_NULL(should_be_null);
+    
+    std::cout << "    ...PASSED" << std::endl;
 }
 
-void test_scheduler(ProcessManager& pm) {
-    std::cout << "--- Running Test: Scheduler ---" << std::endl;
-    
-    auto pidA = pm.create_process(100).value();
-    auto pidB = pm.create_process(100).value();
-    auto p1 = pm.get_process(pidA).get();
-    auto p2 = pm.get_process(pidB).get();
-    assert(p1 != nullptr && p2 != nullptr);
-    
-    assert(pm.get_ready_queue().size() >= 2);
-    
-    auto scheduled_p1 = pm.tick_schedule();
-    assert(scheduled_p1 && scheduled_p1->pid == p1->pid);
-    assert(scheduled_p1->state == ProcessState::RUNNING);
-    assert(pm.get_ready_queue().size() >= 1);
-    
-    auto scheduled_p2 = pm.tick_schedule();
-    assert(scheduled_p2 && scheduled_p2->pid == p2->pid);
-    assert(scheduled_p2->state == ProcessState::RUNNING);
-
-    auto maybe_null = pm.tick_schedule();
-    if (pm.get_ready_queue().empty()) {
-        assert(!maybe_null);
-    }
-    
-    std::cout << "OK: Scheduler correctly selected processes in FIFO order." << std::endl;
-}
-
-void cleanup_processes(ProcessManager& pm) {
-    std::vector<pid_t> pids;
-    for(const auto& pcb_ptr : pm.get_all_processes()) {
-        pids.push_back(pcb_ptr->pid);
-    }
-    for(pid_t pid : pids) {
-        pm.terminate_process(pid);
-    }
-}
-
-int main() {
-    std::cout << "===== Starting ProcessManager Tests =====" << std::endl;
-
-    // 1. Initialize dependencies
-    MemoryManager memory_manager;
-    memory_manager.initialize();
-    ProcessManager process_manager(memory_manager);
-
-    // 2. Run test cases
-    test_create_process_success(process_manager, memory_manager);
-    cleanup_processes(process_manager);
-
-    test_create_process_oom(process_manager, memory_manager);
-    cleanup_processes(process_manager);
-
-    test_terminate_process_success(process_manager, memory_manager);
-    cleanup_processes(process_manager);
-    
-    test_terminate_nonexistent_process(process_manager);
-    cleanup_processes(process_manager);
-
-    test_scheduler(process_manager);
-    cleanup_processes(process_manager);
-
-    std::cout << "===== All ProcessManager Tests Passed! =====" << std::endl;
-    return 0;
+void run_process_manager_tests() {
+    test_pm_create_process_success();
+    test_pm_create_process_oom();
+    test_pm_terminate_process();
+    test_pm_scheduler_fcfs();
 } 

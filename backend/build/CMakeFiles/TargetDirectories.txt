@@ -1,5 +1,7 @@
+C:/Users/Holour/Desktop/OS/backend/build/CMakeFiles/os_simulator_lib.dir
 C:/Users/Holour/Desktop/OS/backend/build/CMakeFiles/os_simulator.dir
 C:/Users/Holour/Desktop/OS/backend/build/CMakeFiles/api_tests.dir
+C:/Users/Holour/Desktop/OS/backend/build/CMakeFiles/unit_tests.dir
 C:/Users/Holour/Desktop/OS/backend/build/CMakeFiles/test.dir
 C:/Users/Holour/Desktop/OS/backend/build/CMakeFiles/edit_cache.dir
 C:/Users/Holour/Desktop/OS/backend/build/CMakeFiles/rebuild_cache.dir

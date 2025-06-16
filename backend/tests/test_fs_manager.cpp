@@ -1,116 +1,141 @@
-#include "../include/fs/fs_manager.h"
-#include "../include/memory/memory_manager.h"
-#include <iostream>
-#include <cassert>
+#include "fs/fs_manager.h"
+#include "test_common.h"
+#include <vector>
+#include <cstring> // For strcmp
 
-void test_format() {
-    std::cout << "--- Running Test: FileSystem Format ---" << std::endl;
-    MemoryManager mm;
-    mm.initialize();
+// Since we can't and shouldn't instantiate MemoryManager here
+// we just test the FileSystemManager in isolation.
+
+void test_initialization() {
+    std::cout << "  - Testing Initialization..." << std::endl;
+    FileSystemManager fsm;
+    fsm.initialize(); // The new way to set up the root directory etc.
+
+    auto status = fsm.get_filesystem_status();
+    ASSERT_EQUAL(status.total_space, DISK_SIZE_BYTES);
+    ASSERT_TRUE(status.used_space > 0); // Some space used by root inode and root dir block
+    ASSERT_EQUAL(status.total_directories, 1); // Root directory
+    ASSERT_EQUAL(status.total_files, 0);
+
+    // Verify root inode exists at index 0
+    auto root_inode_num_opt = fsm.find_inode_by_path("/");
+    ASSERT_TRUE(root_inode_num_opt.has_value());
+    ASSERT_EQUAL(root_inode_num_opt.value(), 0);
     
-    // Test that the FSM can be constructed and allocates its disk space
-    FileSystemManager fsm(mm);
-    assert(mm.get_used_memory() == SIM_DISK_SIZE);
-
-    // Now, test the format method
-    fsm.format();
-
-    // Check if the root inode (inode 0) was created correctly
-    auto root_inode_opt = fsm.get_inode(0);
-    assert(root_inode_opt.has_value());
-    
-    const auto& root_inode = root_inode_opt.value();
-    assert(root_inode.mode == InodeMode::DIRECTORY);
-
-    // Check if another inode is unallocated
-    auto other_inode_opt = fsm.get_inode(1);
-    assert(other_inode_opt.has_value());
-    assert(other_inode_opt.value().mode == InodeMode::UNALLOCATED);
-
-    // In this new design, format() doesn't allocate any data blocks for the root dir itself yet.
-    // That happens when entries are added. So no blocks should be marked as used.
-    // We can add a private method to FSM to check bitmap for testing if needed,
-    // but for now we trust the logic.
-
-    std::cout << "OK: format() correctly initializes the root directory and inode table." << std::endl;
+    std::cout << "    ...PASSED" << std::endl;
 }
 
 void test_create_and_find_directory() {
-    std::cout << "--- Running Test: Create and Find Directory ---" << std::endl;
-    MemoryManager mm;
-    mm.initialize();
-    FileSystemManager fsm(mm);
-    fsm.format();
+    std::cout << "  - Testing Directory Creation and Finding..." << std::endl;
+    FileSystemManager fsm;
+    fsm.initialize();
 
-    // 1. Create a directory '/home' at the root
-    auto home_inode_num_opt = fsm.create_directory("/home");
-    assert(home_inode_num_opt.has_value());
-    uint32_t home_inode_num = home_inode_num_opt.value();
+    // Create a directory
+    uint16_t permissions = 0755;
+    auto create_result = fsm.create_directory("/home", permissions);
+    ASSERT_EQUAL(static_cast<int>(create_result), static_cast<int>(FsCreateResult::Success));
 
-    // 2. Verify its contents ('.' and '..') using the public test helper
-    auto home_inode_opt = fsm.get_inode(home_inode_num);
-    assert(home_inode_opt.has_value() && home_inode_opt->mode == InodeMode::DIRECTORY);
-    
-    char block_buffer[BLOCK_SIZE];
-    assert(fsm.read_block_for_test(home_inode_opt->direct_blocks[0], block_buffer, BLOCK_SIZE));
-    
-    DirectoryEntry* entries = reinterpret_cast<DirectoryEntry*>(block_buffer);
-    assert(strcmp(entries[0].name, ".") == 0 && entries[0].inode_number == home_inode_num);
-    assert(strcmp(entries[1].name, "..") == 0 && entries[1].inode_number == 0);
-    
-    std::cout << "OK: Directory '/home' created and its content is correct." << std::endl;
+    // Find it
+    auto home_inode_num_opt = fsm.find_inode_by_path("/home");
+    ASSERT_TRUE(home_inode_num_opt.has_value());
+    ASSERT_TRUE(home_inode_num_opt.value() > 0); // Should not be root
 
-    // 3. Create a nested directory '/home/user'. This implicitly tests find_inode_for_path.
-    auto user_inode_num_opt = fsm.create_directory("/home/user");
-    assert(user_inode_num_opt.has_value());
-    uint32_t user_inode_num = user_inode_num_opt.value();
+    // List root directory to confirm
+    auto root_content_opt = fsm.list_directory("/");
+    ASSERT_TRUE(root_content_opt.has_value());
+    bool found_home = false;
+    for (const auto& entry : root_content_opt.value()) {
+        if (entry.name == "home" && entry.type == "directory") {
+            found_home = true;
+            break;
+        }
+    }
+    ASSERT_TRUE(found_home);
     
-    // 4. Verify its '..' entry points back to '/home'
-    auto user_inode_opt = fsm.get_inode(user_inode_num);
-    assert(user_inode_opt.has_value());
-    assert(fsm.read_block_for_test(user_inode_opt->direct_blocks[0], block_buffer, BLOCK_SIZE));
-    
-    entries = reinterpret_cast<DirectoryEntry*>(block_buffer);
-    assert(strcmp(entries[1].name, "..") == 0 && entries[1].inode_number == home_inode_num);
+    // Create nested directory
+    create_result = fsm.create_directory("/home/user", permissions);
+    ASSERT_EQUAL(static_cast<int>(create_result), static_cast<int>(FsCreateResult::Success));
 
-    std::cout << "OK: Nested directory '/home/user' created successfully." << std::endl;
+    // Find nested directory
+    auto user_inode_num_opt = fsm.find_inode_by_path("/home/user");
+    ASSERT_TRUE(user_inode_num_opt.has_value());
+
+    // List /home to see 'user'
+    auto home_content_opt = fsm.list_directory("/home");
+    ASSERT_TRUE(home_content_opt.has_value());
+    bool found_user = false;
+    for (const auto& entry : home_content_opt.value()) {
+        if (entry.name == "user" && entry.type == "directory") {
+            found_user = true;
+            break;
+        }
+    }
+    ASSERT_TRUE(found_user);
+
+    std::cout << "    ...PASSED" << std::endl;
 }
 
-void test_directory_creation() {
-    std::cout << "--- Testing Directory Creation ---" << std::endl;
-    MemoryManager mm;
-    mm.initialize();
-    FileSystemManager fsm(mm);
 
-    // Test creating a directory at the root
-    auto dir1_inode_num = fsm.create_directory("/home");
-    assert(dir1_inode_num.has_value());
-    std::cout << "  > Created /home successfully." << std::endl;
+void test_create_and_read_file() {
+    std::cout << "  - Testing File Creation and Reading..." << std::endl;
+    FileSystemManager fsm;
+    fsm.initialize();
+    fsm.create_directory("/tmp", 0755);
 
-    auto found_dir1_inode = fsm.find_inode_for_path("/home");
-    assert(found_dir1_inode.has_value() && found_dir1_inode.value() == dir1_inode_num.value());
+    uint64_t file_size = 12345;
+    uint16_t permissions = 0644;
+    std::string file_path = "/tmp/test.txt";
 
-    // Test creating a nested directory
-    auto dir2_inode_num = fsm.create_directory("/home/user");
-    assert(dir2_inode_num.has_value());
-    std::cout << "  > Created /home/user successfully." << std::endl;
-
-    auto found_dir2_inode = fsm.find_inode_for_path("/home/user");
-    assert(found_dir2_inode.has_value() && found_dir2_inode.value() == dir2_inode_num.value());
+    // Create file
+    auto create_result = fsm.create_file(file_path, file_size, permissions);
+    ASSERT_EQUAL(static_cast<int>(create_result), static_cast<int>(FsCreateResult::Success));
     
-    // Test creating an existing directory (should fail)
-    auto dir3_inode_num = fsm.create_directory("/home");
-    assert(!dir3_inode_num.has_value());
-    std::cout << "  > Attempt to create existing directory failed as expected." << std::endl;
+    // Read file
+    auto file_content_opt = fsm.read_file(file_path);
+    ASSERT_TRUE(file_content_opt.has_value());
+    
+    auto content = file_content_opt.value();
+    ASSERT_TRUE(content.path == file_path);
+    ASSERT_EQUAL(content.simulated_size, file_size);
+    ASSERT_EQUAL(content.permissions, permissions);
+    // The dummy content check
+    ASSERT_TRUE(content.content.find(std::to_string(file_size)) != std::string::npos);
+
+    auto status = fsm.get_filesystem_status();
+    ASSERT_EQUAL(status.total_files, 1);
+    
+    std::cout << "    ...PASSED" << std::endl;
 }
 
-int main() {
-    std::cout << "===== Starting FileSystemManager Tests =====" << std::endl;
+void test_deletion() {
+    std::cout << "  - Testing Deletion..." << std::endl;
+    FileSystemManager fsm;
+    fsm.initialize();
+    fsm.create_directory("/d", 0755);
+    fsm.create_file("/d/f", 100, 0644);
 
-    test_format();
+    // Fail to delete non-empty directory
+    auto delete_res = fsm.delete_directory("/d", false);
+    ASSERT_EQUAL(static_cast<int>(delete_res), static_cast<int>(FsDeleteResult::DirectoryNotEmpty));
+
+    // Delete the file first
+    bool file_deleted = fsm.delete_file("/d/f");
+    ASSERT_TRUE(file_deleted);
+
+    // Now deleting directory should succeed
+    delete_res = fsm.delete_directory("/d", false);
+    ASSERT_EQUAL(static_cast<int>(delete_res), static_cast<int>(FsDeleteResult::Success));
+
+    // Verify it's gone
+    auto find_opt = fsm.find_inode_by_path("/d");
+    ASSERT_FALSE(find_opt.has_value());
+    
+    std::cout << "    ...PASSED" << std::endl;
+}
+
+void run_fs_manager_tests() {
+    test_initialization();
     test_create_and_find_directory();
-    test_directory_creation();
-
-    std::cout << "===== All FileSystemManager Tests Passed! =====" << std::endl;
-    return 0;
+    test_create_and_read_file();
+    test_deletion();
 } 
