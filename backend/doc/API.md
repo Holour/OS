@@ -225,6 +225,37 @@
 
 > **同步 (SYNC)**: 若其中一个进程进入 `BLOCKED`，另一方也自动进入 `BLOCKED`；解除阻塞时亦会同时恢复到 `READY`。
 
+#### 1.7 获取进程关系列表
+返回当前系统中所有已建立的进程关系（同步或互斥）。
+
+**接口地址**
+`GET http://localhost:8080/api/v1/processes/relationships`
+
+**参数描述**
+*   **请求参数**: 无
+
+*   **响应参数**: 一个数组，每个元素包含：
+
+| 参数名         | 类型    | 描述                       |
+|----------------|---------|----------------------------|
+| pid1           | integer | 进程 A 的 PID              |
+| pid2           | integer | 进程 B 的 PID              |
+| relation_type  | string  | 关系类型 ("SYNC" / "MUTEX")|
+
+**请求示例**
+无
+
+**响应示例**
+```json
+{
+  "status": "success",
+  "data": [
+    { "pid1": 10, "pid2": 11, "relation_type": "SYNC" },
+    { "pid1": 3,  "pid2": 7,  "relation_type": "MUTEX" }
+  ]
+}
+```
+
 ### **2. 调度器 (Scheduler)**
 
 #### 2.0 调度器配置
@@ -355,7 +386,7 @@
 | total_memory        | integer(uint64) | 系统总内存大小（字节）                 |
 | used_memory         | integer(uint64) | 已用内存大小（字节）                   |
 | allocation_strategy | integer         | 当前内存分配策略 (0=连续, 1=分区, 2=分页) |
-| free_blocks         | array (object)  | 空闲内存块列表（连续分配和分页时返回） |
+| free_blocks         | array (object)  | 空闲内存块列表（仅连续分配时返回）      |
 | » base_address      | integer(uint64) | 空闲块起始地址                         |
 | » size              | integer(uint64) | 空闲块大小（字节）                     |
 | partitions          | array (object)  | 分区信息列表（分区分配时返回）         |
@@ -363,6 +394,10 @@
 | » size              | integer(uint64) | 分区大小（字节）                       |
 | » is_free           | boolean         | 分区是否空闲                           |
 | » owner_pid         | integer         | 分区拥有者进程ID（-1表示空闲）         |
+| paging              | object          | 分页信息（分页分配时返回）             |
+| » total_pages       | integer         | 页框总数                               |
+| » used_pages        | integer         | 已使用页框数                           |
+| » free_pages        | integer         | 空闲页框数                             |
 
 **请求示例**
 无

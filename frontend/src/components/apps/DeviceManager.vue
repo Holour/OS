@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { deviceAPI, processAPI } from '@/services/api';
+import { useDialogs } from '@/composables/useDialogs';
 
 interface Device {
   device_id: number;
@@ -36,6 +37,8 @@ const refreshInterval = ref<number | null>(null);
 const selectedOperation = ref('');
 const selectedDeviceType = ref('');
 const selectedProcessId = ref<number | null>(null);
+
+const { alert, success, error: showError, confirm } = useDialogs();
 
 // 设备操作历史
 const operationHistory = ref<DeviceOperation[]>([]);
@@ -241,12 +244,13 @@ const deleteDevice = async (deviceId: number) => {
 // 带进程ID的设备申请
 const requestDeviceWithProcess = async (deviceId: number) => {
   if (!selectedProcessId.value) {
-    alert('请先选择一个进程');
+    showError('请先选择一个进程');
     return;
   }
 
   try {
     await requestDevice(deviceId, selectedProcessId.value);
+    success('设备申请成功');
   } catch (error) {
     console.error('申请设备失败:', error);
   }
@@ -255,12 +259,13 @@ const requestDeviceWithProcess = async (deviceId: number) => {
 // 带进程ID的设备释放
 const releaseDeviceWithProcess = async (deviceId: number) => {
   if (!selectedProcessId.value) {
-    alert('请先选择一个进程');
+    showError('请先选择一个进程');
     return;
   }
 
   try {
     await releaseDevice(deviceId, selectedProcessId.value);
+    success('设备释放成功');
   } catch (error) {
     console.error('释放设备失败:', error);
   }
@@ -278,13 +283,14 @@ const confirmDeleteDevice = async (deviceId: number) => {
     confirmMessage = `设备 "${device.name}" 正在被进程 ${device.current_user} 使用。\n\n确定要强制删除吗？这将：\n1. 先释放设备\n2. 然后删除设备\n\n此操作不可恢复。`;
   }
 
-  const confirmed = confirm(confirmMessage);
-  if (confirmed) {
-    try {
+  try {
+    const confirmed = await confirm(confirmMessage, '删除设备');
+    if (confirmed) {
       await deleteDeviceWithForce(deviceId);
-    } catch (error) {
-      console.error('删除设备失败:', error);
+      success('设备删除成功');
     }
+  } catch (error) {
+    console.error('删除设备失败:', error);
   }
 };
 

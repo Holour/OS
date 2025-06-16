@@ -24,22 +24,15 @@ static std::vector<std::string> split_path(const std::string& path) {
 // --- FileSystemManager Implementation ---
 
 FileSystemManager::FileSystemManager()
-    : disk_pool(nullptr),
-      current_strategy(AllocationStrategy::INDEXED) {
+    : current_strategy(AllocationStrategy::INDEXED) {
     initialize();
 }
 
 FileSystemManager::~FileSystemManager() {
-    delete[] disk_pool;
+    // block_storage 会在其成员被析构时自动释放，无需显式删除
 }
 
 void FileSystemManager::initialize() {
-    try {
-        disk_pool = new char[DISK_SIZE_BYTES];
-    } catch (const std::bad_alloc& e) {
-        throw std::runtime_error("Failed to allocate memory for the file system disk.");
-    }
-    
     inode_table.resize(MAX_INODES);
     for (auto& inode : inode_table) {
         inode.type = InodeType::FREE;
@@ -197,17 +190,12 @@ std::optional<uint32_t> FileSystemManager::find_inode_by_path(const std::string&
             return std::nullopt;
         }
 
-        auto entries = get_dir_entries(current_inode_idx);
-        bool found = false;
-        for (const auto& entry : entries) {
-            if (entry.inode_num != 0 && strcmp(entry.name, part.c_str()) == 0) {
-                p_idx = current_inode_idx;
-                current_inode_idx = entry.inode_num;
-                found = true;
-                break;
-            }
-        }
-        if (!found) {
+        uint32_t next_inode_idx = 0;
+        bool found = lookup_dir_entry(current_inode_idx, part, next_inode_idx);
+        if (found) {
+            p_idx = current_inode_idx;
+            current_inode_idx = next_inode_idx;
+        } else {
             // If part not found, set parent info for creation and return nullopt
             if (i == parts.size() - 1) { // last part
                  if (parent_inode_idx) *parent_inode_idx = current_inode_idx;
@@ -602,10 +590,13 @@ void FileSystemManager::free_inode(uint32_t inode_num) {
 }
 
 std::optional<uint32_t> FileSystemManager::allocate_block() {
-    for (uint32_t i = 0; i < NUM_BLOCKS; ++i) {
-        if (!block_bitmap[i]) {
-            block_bitmap[i] = true;
-            return i;
+    // 从游标开始寻找，提高顺序批量分配效率
+    for (uint32_t scanned = 0; scanned < NUM_BLOCKS; ++scanned) {
+        uint32_t idx = (next_block_cursor + scanned) % NUM_BLOCKS;
+        if (!block_bitmap[idx]) {
+            block_bitmap[idx] = true;
+            next_block_cursor = (idx + 1) % NUM_BLOCKS;
+            return idx;
         }
     }
     return std::nullopt;
@@ -739,12 +730,78 @@ void FileSystemManager::read_disk(uint64_t offset, void* buffer, size_t size) {
     if (offset + size > DISK_SIZE_BYTES) {
         throw std::runtime_error("Disk read out of bounds.");
     }
-    std::memcpy(buffer, disk_pool + offset, size);
+
+    char* out_ptr = static_cast<char*>(buffer);
+    size_t remaining = size;
+    uint64_t cur_offset = offset;
+
+    while (remaining > 0) {
+        uint32_t block_idx = static_cast<uint32_t>(cur_offset / BLOCK_SIZE);
+        uint32_t in_block_off = static_cast<uint32_t>(cur_offset % BLOCK_SIZE);
+        size_t copy_len = std::min(static_cast<size_t>(BLOCK_SIZE - in_block_off), remaining);
+
+        auto it = block_storage.find(block_idx);
+        if (it != block_storage.end()) {
+            std::memcpy(out_ptr, it->second.get() + in_block_off, copy_len);
+        } else {
+            // 未分配的块视为全 0
+            std::memset(out_ptr, 0, copy_len);
+        }
+
+        out_ptr += copy_len;
+        cur_offset += copy_len;
+        remaining -= copy_len;
+    }
 }
 
 void FileSystemManager::write_disk(uint64_t offset, const void* data, size_t size) {
     if (offset + size > DISK_SIZE_BYTES) {
         throw std::runtime_error("Disk write out of bounds.");
     }
-    std::memcpy(disk_pool + offset, data, size);
+
+    const char* src_ptr = static_cast<const char*>(data);
+    size_t remaining = size;
+    uint64_t cur_offset = offset;
+
+    while (remaining > 0) {
+        uint32_t block_idx = static_cast<uint32_t>(cur_offset / BLOCK_SIZE);
+        uint32_t in_block_off = static_cast<uint32_t>(cur_offset % BLOCK_SIZE);
+        size_t copy_len = std::min(static_cast<size_t>(BLOCK_SIZE - in_block_off), remaining);
+
+        // 如果该块尚未分配，则分配并初始化为 0
+        auto& blk_ptr = block_storage[block_idx];
+        if (!blk_ptr) {
+            blk_ptr = std::make_unique<char[]>(BLOCK_SIZE);
+            std::memset(blk_ptr.get(), 0, BLOCK_SIZE);
+        }
+
+        std::memcpy(blk_ptr.get() + in_block_off, src_ptr, copy_len);
+
+        src_ptr += copy_len;
+        cur_offset += copy_len;
+        remaining -= copy_len;
+    }
+}
+
+bool FileSystemManager::lookup_dir_entry(uint32_t dir_inode_idx, const std::string& name, uint32_t& out_inode_idx) {
+    const auto& dir_inode = inode_table[dir_inode_idx];
+    if (dir_inode.type != InodeType::DIRECTORY || dir_inode.simulated_size == 0) return false;
+
+    auto* alloc_info = std::get_if<IndexedAllocation>(&dir_inode.allocation_info);
+    if (!alloc_info) return false;
+
+    uint32_t num_entries = dir_inode.simulated_size;
+    uint64_t base_offset = static_cast<uint64_t>(alloc_info->index_block) * BLOCK_SIZE;
+
+    std::vector<char> entry_buf(sizeof(DirectoryEntry));
+    for (uint32_t i = 0; i < num_entries; ++i) {
+        uint64_t off = base_offset + static_cast<uint64_t>(i) * sizeof(DirectoryEntry);
+        read_disk(off, entry_buf.data(), sizeof(DirectoryEntry));
+        const DirectoryEntry* ent = reinterpret_cast<const DirectoryEntry*>(entry_buf.data());
+        if (ent->inode_num != 0 && strcmp(ent->name, name.c_str()) == 0) {
+            out_inode_idx = ent->inode_num;
+            return true;
+        }
+    }
+    return false;
 }

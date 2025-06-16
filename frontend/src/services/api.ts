@@ -14,15 +14,31 @@ export const processAPI = {
 
   // 创建新进程
   createProcess: (...args: any[]) => {
-    if (typeof args[0] === 'string') {
-      // 旧签名 (name: string, size: number)
-      const [, size] = args as [string, number];
-      return apiClient.post('/processes', { memory_size: size });
+    /*
+     * 为了兼容历史调用方式，createProcess 目前支持以下 3 种签名：
+     * 1. (name: string, size: number [, cpu_time?: number [, priority?: number]])
+     * 2. (size: number [, cpu_time?: number [, priority?: number [, name?: string]]])
+     * 3. (payload: { name?: string; memory_size: number; cpu_time?: number; priority?: number })
+     */
+
+    // 如果直接传入对象，则认为已经是后端所需的 payload
+    if (args.length === 1 && typeof args[0] === 'object' && !Array.isArray(args[0])) {
+      return apiClient.post('/processes', args[0]);
     }
 
-    // 新签名 (size: number, cpu_time?: number, priority?: number)
-    const [size, cpu_time = 10, priority = 5] = args as [number, number?, number?];
-    return apiClient.post('/processes', { memory_size: size, cpu_time, priority });
+    // 第一种：第一个参数为字符串，代表 name
+    if (typeof args[0] === 'string') {
+      const [name, size, cpu_time = 10, priority = 5] = args as [string, number, number?, number?];
+      return apiClient.post('/processes', { name, memory_size: size, cpu_time, priority });
+    }
+
+    // 第二种：第一个参数为数字，代表 memory_size
+    const [size, cpu_time = 10, priority = 5, name] = args as [number, number?, number?, string?];
+    const payload: any = { memory_size: size, cpu_time, priority };
+    if (typeof name === 'string' && name.trim() !== '') {
+      payload.name = name.trim();
+    }
+    return apiClient.post('/processes', payload);
   },
 
   // 终止进程
@@ -47,6 +63,9 @@ export const processAPI = {
       pid2,
       relation_type: relationType
     }),
+
+  // 获取进程关系列表 (新增)
+  getProcessRelationships: () => apiClient.get('/processes/relationships'),
 
   // 注意：后端没有实现获取单个进程详情的API
   // getProcess: (pid: number) => apiClient.get(`/processes/${pid}`),

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, nextTick } from 'vue';
-import { interruptAPI, filesystemAPI, processAPI, memoryAPI, deviceAPI, clockAPI } from '@/services/api';
+import { interruptAPI, filesystemAPI, processAPI, memoryAPI, deviceAPI, clockAPI, schedulerAPI } from '@/services/api';
+import { useWindowsStore } from '@/stores/windows';
 
 interface HistoryItem {
   id: number;
@@ -16,6 +17,9 @@ const command = ref('');
 const historyEl = ref<HTMLElement | null>(null);
 const currentDirectory = ref('/');
 let historyId = 2;
+
+// 窗口管理器
+const windowsStore = useWindowsStore();
 
 const executeCommand = async () => {
   const [cmd, ...args] = command.value.trim().split(/\s+/);
@@ -80,6 +84,15 @@ const executeCommand = async () => {
       case 'lsdev':
         await handleLsdev();
         break;
+      case 'request':
+        await handleRequest(args);
+        break;
+      case 'release':
+        await handleRelease(args);
+        break;
+      case 'deldev':
+        await handleDeldev(args);
+        break;
 
       // 中断管理命令
       case 'register':
@@ -122,9 +135,41 @@ const executeCommand = async () => {
       case 'top':
         await handleTop();
         break;
+      case 'gantt':
+        await handleGantt();
+        break;
+      case 'config':
+        await handleConfig(args);
+        break;
+      case 'fork':
+        await handleFork(args);
+        break;
+      case 'relation':
+        await handleRelation(args);
+        break;
+      case 'memstrategy':
+        await handleMemStrategy(args);
+        break;
+      case 'fsconfig':
+        await handleFsConfig(args);
+        break;
+      case 'fileaddr':
+        await handleFileAddr(args);
+        break;
+      case 'exec':
+        await handleExec(args);
+        break;
+      case 'start':
+        await handleStart(args);
+        break;
 
       default:
-        addToHistory('error', `Command not found: ${cmd}. Type 'help' for available commands.`);
+        // 尝试将命令作为.pubt文件执行
+        if (await tryExecutePubtFile(cmd)) {
+          // 成功执行.pubt文件，无需其他操作
+        } else {
+          addToHistory('error', `Command not found: ${cmd}. Type 'help' for available commands.`);
+        }
     }
   } catch (err: any) {
     addToHistory('error', err.response?.data?.message || err.message || 'An unknown error occurred');
@@ -266,35 +311,53 @@ const showHelp = () => {
   const helpText = `Available commands:
 
 File System:
-  ls [path]           - List directory contents
-  cd <path>          - Change directory
-  pwd                - Print working directory
-  cat <file>         - Display file contents
-  mkdir <dir>        - Create directory
-  touch <file>       - Create empty file
-  rm <path>          - Delete file or directory
-  echo <text>        - Print text
+  ls [path]             - List directory contents
+  cd <path>            - Change directory
+  pwd                  - Print working directory
+  cat <file>           - Display file contents
+  mkdir <dir>          - Create directory
+  touch <file>         - Create empty file
+  rm <path>            - Delete file or directory
+  echo <text>          - Print text
+  fileaddr <file>      - Show file allocation addresses
+  fsconfig [method]    - Show/set file system allocation method
 
 Process Management:
-  ps                 - List running processes
-  kill <pid>         - Terminate process
-  run <program> <memory> - Create new process
-  top                - Show system resources and processes
+  ps                   - List running processes
+  kill <pid>           - Terminate process
+  run <memory> [cpu] [priority] - Create new process
+  fork <parent> <memory> [cpu] [priority] [name] - Create child process
+  exec <pubt_file>     - Execute .pubt program file
+  start <pubt_file>    - Start .pubt program file (alias for exec)
+  top                  - Show system resources and processes
+  relation <cmd>       - Process relationship management
+    relation list      - List process relationships
+    relation create <pid1> <pid2> <type> - Create SYNC/MUTEX relation
 
-System Information:
-  free               - Show memory usage
-  lsdev              - List devices
-  time               - Show current time
-  timer <delay>      - Set timer
-  date               - Show current date and time
-  uname              - Show system info
-  uptime             - Show system uptime
-  whoami             - Show current user
+Memory Management:
+  free                 - Show detailed memory usage
+  memstrategy <num>    - Set memory allocation strategy (0/1/2)
+
+Device Management:
+  lsdev                - List all devices
+  request <dev> <pid>  - Request device for process
+  release <dev> <pid>  - Release device from process
+  deldev <device_id>   - Delete idle device
 
 Scheduler Management:
-  schedule tick      - Execute one scheduling tick
-  schedule queue     - Show ready queue
-  schedule status    - Show process status
+  schedule tick        - Execute one scheduling tick
+  schedule queue       - Show ready queue
+  schedule status      - Show process status
+  gantt                - Show scheduling gantt chart
+  config scheduler [alg] [slice] - Show/set scheduler config
+
+System Information:
+  time                 - Show current time
+  timer <delay> [repeat] [interval] - Set timer
+  date                 - Show current date and time
+  uname                - Show system info
+  uptime               - Show system uptime
+  whoami               - Show current user
 
 Interrupt Management:
   register <vector> <type> [priority] - Register interrupt handler
@@ -308,8 +371,16 @@ Interrupt Management:
       Available scenarios: timer, keyboard, disk, network, syscall
 
 General:
-  help               - Show this message
-  clear              - Clear terminal`;
+  help                 - Show this message
+  clear                - Clear terminal
+
+Notes:
+  - Memory strategies: 0=Continuous, 1=Partitioned, 2=Paged
+  - File system methods: CONTIGUOUS, LINKED, INDEXED
+  - Scheduler algorithms: FCFS, SJF, PRIORITY, RR
+  - Process relation types: SYNC, MUTEX
+  - You can directly run .pubt programs by typing their name (e.g., "在线音乐")
+  - .pubt files will auto-launch corresponding GUI applications or create processes`;
 
   addToHistory('info', helpText);
 };
@@ -536,13 +607,14 @@ const handleKill = async (args: string[]) => {
 };
 
 const handleRun = async (args: string[]) => {
-  if (args.length < 2) {
-    addToHistory('error', 'run: usage: run <program> <memory_size>');
+  if (args.length < 1) {
+    addToHistory('error', 'run: usage: run <memory_size> [cpu_time] [priority]');
     return;
   }
 
-  const program = args[0];
-  const memorySize = parseInt(args[1]);
+  const memorySize = parseInt(args[0]);
+  const cpuTime = args[1] ? parseInt(args[1]) : 1000;
+  const priority = args[2] ? parseInt(args[2]) : 5;
 
   if (isNaN(memorySize)) {
     addToHistory('error', 'run: invalid memory size');
@@ -550,12 +622,14 @@ const handleRun = async (args: string[]) => {
   }
 
   try {
-          const res = await processAPI.createProcess(program, memorySize);
+    const res = await processAPI.createProcess(memorySize, cpuTime, priority);
     if (res.data.status === 'success') {
-      addToHistory('info', `Process created: ${program} (PID: ${res.data.data.pid})`);
+      const process = res.data.data;
+      addToHistory('info', `Process created: PID ${process.pid} (Memory: ${formatFileSize(memorySize)}, CPU: ${cpuTime}ms, Priority: ${priority})`);
     }
-  } catch (error) {
-    addToHistory('error', `run: failed to create process ${program}`);
+  } catch (error: any) {
+    const errorMsg = error.response?.data?.message || error.message || 'Unknown error';
+    addToHistory('error', `run: ${errorMsg}`);
   }
 };
 
@@ -566,16 +640,32 @@ const handleFree = async () => {
     if (res.data.status === 'success') {
       const memory = res.data.data;
       let output = 'Memory Status:\n';
-      output += `Total:     ${memory.total_memory} KB\n`;
-      output += `Used:      ${memory.used_memory} KB\n`;
-      output += `Free:      ${memory.free_memory} KB\n`;
-      output += `Usage:     ${memory.usage_percentage}%\n`;
+      output += `Total:     ${formatFileSize(memory.total_memory)}\n`;
+      output += `Used:      ${formatFileSize(memory.used_memory)}\n`;
+      output += `Free:      ${formatFileSize(memory.total_memory - memory.used_memory)}\n`;
+      output += `Strategy:  ${getStrategyName(memory.allocation_strategy)}\n\n`;
 
-      if (memory.allocations && memory.allocations.length > 0) {
-        output += '\nAllocations:\n';
-        memory.allocations.forEach((alloc: any) => {
-          output += `  PID ${alloc.process_id}: ${alloc.size} KB\n`;
+      // 显示不同策略的详细信息
+      if (memory.allocation_strategy === 0 && memory.free_blocks) {
+        output += 'Free Blocks:\n';
+        memory.free_blocks.forEach((block: any, index: number) => {
+          output += `  Block ${index + 1}: ${formatFileSize(block.size)} at 0x${block.base_address.toString(16)}\n`;
         });
+      }
+
+      if (memory.allocation_strategy === 1 && memory.partitions) {
+        output += 'Partitions:\n';
+        memory.partitions.forEach((partition: any, index: number) => {
+          const status = partition.is_free ? 'FREE' : `PID ${partition.owner_pid}`;
+          output += `  Part ${index + 1}: ${formatFileSize(partition.size)} at 0x${partition.base_address.toString(16)} (${status})\n`;
+        });
+      }
+
+      if (memory.allocation_strategy === 2 && memory.paging) {
+        output += 'Paging Information:\n';
+        output += `  Total Pages: ${memory.paging.total_pages}\n`;
+        output += `  Used Pages:  ${memory.paging.used_pages}\n`;
+        output += `  Free Pages:  ${memory.paging.free_pages}\n`;
       }
 
       addToHistory('response', output.trim());
@@ -591,19 +681,93 @@ const handleLsdev = async () => {
     const res = await deviceAPI.getDevices();
     if (res.data.status === 'success') {
       const devices = res.data.data;
-      let output = 'DEVICE    TYPE           STATUS    OWNER\n';
-      output += '--------- -------------- --------- --------\n';
+      let output = 'ID       NAME            TYPE           STATUS    OWNER\n';
+      output += '-------- --------------- -------------- --------- --------\n';
       devices.forEach((dev: any) => {
-        const device = dev.device_id.toString().padEnd(9);
+        const id = dev.device_id.toString().padEnd(8);
+        const name = dev.name.padEnd(15);
         const type = dev.type.padEnd(14);
         const status = dev.status.padEnd(9);
-        const owner = dev.owner_process_id ? dev.owner_process_id.toString() : 'none';
-        output += `${device} ${type} ${status} ${owner}\n`;
+        const owner = dev.current_user ? dev.current_user.toString() : 'none';
+        output += `${id} ${name} ${type} ${status} ${owner}\n`;
       });
       addToHistory('response', output.trim());
     }
   } catch (error) {
     addToHistory('error', 'Failed to list devices');
+  }
+};
+
+// 申请设备
+const handleRequest = async (args: string[]) => {
+  if (args.length < 2) {
+    addToHistory('error', 'request: usage: request <device_id> <process_id>');
+    return;
+  }
+
+  const deviceId = parseInt(args[0]);
+  const processId = parseInt(args[1]);
+
+  if (isNaN(deviceId) || isNaN(processId)) {
+    addToHistory('error', 'request: invalid device ID or process ID');
+    return;
+  }
+
+  try {
+    const res = await deviceAPI.requestDevice(deviceId, processId);
+    if (res.data.status === 'success') {
+      const device = res.data.data;
+      addToHistory('info', `Device ${device.name} (ID: ${deviceId}) allocated to process ${processId}`);
+    }
+  } catch (error: any) {
+    const errorMsg = error.response?.data?.message || error.message || 'Unknown error';
+    addToHistory('error', `request: ${errorMsg}`);
+  }
+};
+
+// 释放设备
+const handleRelease = async (args: string[]) => {
+  if (args.length < 2) {
+    addToHistory('error', 'release: usage: release <device_id> <process_id>');
+    return;
+  }
+
+  const deviceId = parseInt(args[0]);
+  const processId = parseInt(args[1]);
+
+  if (isNaN(deviceId) || isNaN(processId)) {
+    addToHistory('error', 'release: invalid device ID or process ID');
+    return;
+  }
+
+  try {
+    await deviceAPI.releaseDevice(deviceId, processId);
+    addToHistory('info', `Device ${deviceId} released from process ${processId}`);
+  } catch (error: any) {
+    const errorMsg = error.response?.data?.message || error.message || 'Unknown error';
+    addToHistory('error', `release: ${errorMsg}`);
+  }
+};
+
+// 删除设备
+const handleDeldev = async (args: string[]) => {
+  if (args.length === 0) {
+    addToHistory('error', 'deldev: missing device ID');
+    return;
+  }
+
+  const deviceId = parseInt(args[0]);
+  if (isNaN(deviceId)) {
+    addToHistory('error', 'deldev: invalid device ID');
+    return;
+  }
+
+  try {
+    await deviceAPI.deleteDevice(deviceId);
+    addToHistory('info', `Device ${deviceId} deleted successfully`);
+  } catch (error: any) {
+    const errorMsg = error.response?.data?.message || error.message || 'Unknown error';
+    addToHistory('error', `deldev: ${errorMsg}`);
   }
 };
 
@@ -787,6 +951,417 @@ const handleTop = async () => {
   }
 };
 
+// 甘特图命令
+const handleGantt = async () => {
+  try {
+    const res = await schedulerAPI.getGanttChart();
+    if (res.data.status === 'success') {
+      const chart = res.data.data;
+      if (chart && chart.length > 0) {
+        let output = 'Gantt Chart:\n';
+        output += 'PID    START    END      DURATION\n';
+        output += '----   -----    -----    --------\n';
+        chart.forEach((entry: any) => {
+          const pid = entry.pid.toString().padEnd(6);
+          const start = entry.start.toString().padEnd(8);
+          const end = entry.end.toString().padEnd(8);
+          const duration = (entry.end - entry.start).toString();
+          output += `${pid} ${start} ${end} ${duration}ms\n`;
+        });
+        addToHistory('response', output.trim());
+      } else {
+        addToHistory('info', 'No scheduling data available');
+      }
+    }
+  } catch (error: any) {
+    const errorMsg = error.response?.data?.message || error.message || 'Unknown error';
+    addToHistory('error', `gantt: ${errorMsg}`);
+  }
+};
+
+// 配置命令
+const handleConfig = async (args: string[]) => {
+  if (args.length === 0) {
+    addToHistory('info', 'config: usage: config <type> [options]\nTypes: scheduler');
+    return;
+  }
+
+  const configType = args[0].toLowerCase();
+  const subArgs = args.slice(1);
+
+  try {
+    switch (configType) {
+      case 'scheduler':
+        if (subArgs.length === 0) {
+          // 查询调度器配置
+          const res = await schedulerAPI.getConfig();
+          if (res.data.status === 'success') {
+            const config = res.data.data;
+            addToHistory('response', `Scheduler Algorithm: ${config.algorithm}\nTime Slice: ${config.time_slice}ms`);
+          }
+        } else {
+          // 设置调度器配置
+          const algorithm = subArgs[0].toUpperCase();
+          const timeSlice = subArgs[1] ? parseInt(subArgs[1]) : undefined;
+
+          if (!['FCFS', 'SJF', 'PRIORITY', 'RR'].includes(algorithm)) {
+            addToHistory('error', 'config scheduler: invalid algorithm. Must be FCFS, SJF, PRIORITY, or RR');
+            return;
+          }
+
+          const res = await schedulerAPI.setConfig(algorithm, timeSlice);
+          if (res.data.status === 'success') {
+            addToHistory('info', `Scheduler configured: ${algorithm}${timeSlice ? ` (time slice: ${timeSlice}ms)` : ''}`);
+          }
+        }
+        break;
+      default:
+        addToHistory('error', `config: unknown type '${configType}'`);
+    }
+  } catch (error: any) {
+    const errorMsg = error.response?.data?.message || error.message || 'Unknown error';
+    addToHistory('error', `config: ${errorMsg}`);
+  }
+};
+
+// fork命令 - 创建子进程
+const handleFork = async (args: string[]) => {
+  if (args.length < 2) {
+    addToHistory('error', 'fork: usage: fork <parent_pid> <memory_size> [cpu_time] [priority] [name]');
+    return;
+  }
+
+  const parentPid = parseInt(args[0]);
+  const memorySize = parseInt(args[1]);
+  const cpuTime = args[2] ? parseInt(args[2]) : 1000;
+  const priority = args[3] ? parseInt(args[3]) : 5;
+  const name = args[4] || undefined;
+
+  if (isNaN(parentPid) || isNaN(memorySize)) {
+    addToHistory('error', 'fork: invalid parent PID or memory size');
+    return;
+  }
+
+  try {
+    const res = await processAPI.createChildProcess(parentPid, memorySize, cpuTime, priority, name);
+    if (res.data.status === 'success') {
+      const child = res.data.data;
+      addToHistory('info', `Child process created: PID ${child.pid} (parent: ${parentPid})`);
+    }
+  } catch (error: any) {
+    const errorMsg = error.response?.data?.message || error.message || 'Unknown error';
+    addToHistory('error', `fork: ${errorMsg}`);
+  }
+};
+
+// 进程关系命令
+const handleRelation = async (args: string[]) => {
+  if (args.length === 0) {
+    addToHistory('info', 'relation: usage: relation <command> [args]\nCommands: list, create');
+    return;
+  }
+
+  const subCmd = args[0].toLowerCase();
+  const subArgs = args.slice(1);
+
+  try {
+    switch (subCmd) {
+      case 'list':
+        const res = await processAPI.getProcessRelationships();
+        if (res.data.status === 'success') {
+          const relations = res.data.data;
+          if (relations && relations.length > 0) {
+            let output = 'Process Relations:\n';
+            output += 'PID1   PID2   TYPE\n';
+            output += '----   ----   -------\n';
+            relations.forEach((rel: any) => {
+              const pid1 = rel.pid1.toString().padEnd(6);
+              const pid2 = rel.pid2.toString().padEnd(6);
+              output += `${pid1} ${pid2} ${rel.relation_type}\n`;
+            });
+            addToHistory('response', output.trim());
+          } else {
+            addToHistory('info', 'No process relations found');
+          }
+        }
+        break;
+      case 'create':
+        if (subArgs.length < 3) {
+          addToHistory('error', 'relation create: usage: create <pid1> <pid2> <type>');
+          return;
+        }
+        const pid1 = parseInt(subArgs[0]);
+        const pid2 = parseInt(subArgs[1]);
+        const relationType = subArgs[2].toUpperCase();
+
+        if (isNaN(pid1) || isNaN(pid2)) {
+          addToHistory('error', 'relation create: invalid process IDs');
+          return;
+        }
+
+        if (!['SYNC', 'MUTEX'].includes(relationType)) {
+          addToHistory('error', 'relation create: type must be SYNC or MUTEX');
+          return;
+        }
+
+        const createRes = await processAPI.createProcessRelationship(pid1, pid2, relationType);
+        if (createRes.data.status === 'success') {
+          addToHistory('info', `${relationType} relation created between PID ${pid1} and PID ${pid2}`);
+        }
+        break;
+      default:
+        addToHistory('error', `relation: unknown command '${subCmd}'`);
+    }
+  } catch (error: any) {
+    const errorMsg = error.response?.data?.message || error.message || 'Unknown error';
+    addToHistory('error', `relation: ${errorMsg}`);
+  }
+};
+
+// 内存分配策略命令
+const handleMemStrategy = async (args: string[]) => {
+  if (args.length === 0) {
+    addToHistory('info', 'memstrategy: usage: memstrategy <strategy>\nStrategies: 0(continuous), 1(partitioned), 2(paged)');
+    return;
+  }
+
+  const strategy = parseInt(args[0]);
+  if (isNaN(strategy) || strategy < 0 || strategy > 2) {
+    addToHistory('error', 'memstrategy: invalid strategy. Must be 0, 1, or 2');
+    return;
+  }
+
+  try {
+    const res = await memoryAPI.setStrategy(strategy);
+    if (res.data.status === 'success') {
+      const strategyName = getStrategyName(strategy);
+      addToHistory('info', `Memory allocation strategy changed to: ${strategyName}`);
+    }
+  } catch (error: any) {
+    const errorMsg = error.response?.data?.message || error.message || 'Unknown error';
+    addToHistory('error', `memstrategy: ${errorMsg}`);
+  }
+};
+
+// 文件系统配置命令
+const handleFsConfig = async (args: string[]) => {
+  if (args.length === 0) {
+    // 显示当前配置
+    try {
+      const res = await filesystemAPI.getStatus();
+      if (res.data.status === 'success') {
+        const status = res.data.data;
+        let output = 'File System Status:\n';
+        output += `Total Space:    ${formatFileSize(status.total_space)}\n`;
+        output += `Used Space:     ${formatFileSize(status.used_space)}\n`;
+        output += `Free Space:     ${formatFileSize(status.free_space)}\n`;
+        output += `Files:          ${status.total_files}\n`;
+        output += `Directories:    ${status.total_dirs}\n`;
+        output += `Allocation:     ${status.allocation_method}\n`;
+        addToHistory('response', output.trim());
+      }
+    } catch (error: any) {
+      const errorMsg = error.response?.data?.message || error.message || 'Unknown error';
+      addToHistory('error', `fsconfig: ${errorMsg}`);
+    }
+    return;
+  }
+
+  const method = args[0].toUpperCase();
+  if (!['CONTIGUOUS', 'LINKED', 'INDEXED'].includes(method)) {
+    addToHistory('error', 'fsconfig: invalid method. Must be CONTIGUOUS, LINKED, or INDEXED');
+    return;
+  }
+
+  try {
+    await filesystemAPI.setConfig(method);
+    addToHistory('info', `File system allocation method changed to: ${method}`);
+  } catch (error: any) {
+    const errorMsg = error.response?.data?.message || error.message || 'Unknown error';
+    addToHistory('error', `fsconfig: ${errorMsg}`);
+  }
+};
+
+// 文件地址查询命令
+const handleFileAddr = async (args: string[]) => {
+  if (args.length === 0) {
+    addToHistory('error', 'fileaddr: missing file path');
+    return;
+  }
+
+  let filePath = args[0];
+  if (!filePath.startsWith('/')) {
+    filePath = currentDirectory.value === '/' ? '/' + filePath : currentDirectory.value + '/' + filePath;
+  }
+
+  try {
+    const res = await filesystemAPI.getFileAddress(filePath);
+    if (res.data.status === 'success') {
+      const data = res.data.data;
+      let output = `File Address Information for: ${data.path}\n`;
+      output += 'Allocation Strategy Addresses:\n';
+
+      if (data.addresses.contiguous !== null) {
+        output += `  Contiguous: Block ${data.addresses.contiguous}\n`;
+      } else {
+        output += `  Contiguous: Not allocated\n`;
+      }
+
+      if (data.addresses.linked !== null) {
+        output += `  Linked:     Block ${data.addresses.linked}\n`;
+      } else {
+        output += `  Linked:     Not allocated\n`;
+      }
+
+      if (data.addresses.indexed !== null) {
+        output += `  Indexed:    Index Block ${data.addresses.indexed}\n`;
+      } else {
+        output += `  Indexed:    Not allocated\n`;
+      }
+
+      addToHistory('response', output.trim());
+    }
+  } catch (error: any) {
+    const errorMsg = error.response?.data?.message || error.message || 'Unknown error';
+    addToHistory('error', `fileaddr: ${errorMsg}`);
+  }
+};
+
+// .pubt程序启动命令
+const handleExec = async (args: string[]) => {
+  if (args.length === 0) {
+    addToHistory('error', 'exec: missing .pubt file path');
+    addToHistory('info', 'Usage: exec <pubt_file>');
+    return;
+  }
+
+  let filePath = args[0];
+  if (!filePath.startsWith('/')) {
+    filePath = currentDirectory.value === '/' ? '/' + filePath : currentDirectory.value + '/' + filePath;
+  }
+
+  // 检查文件扩展名
+  if (!filePath.toLowerCase().endsWith('.pubt')) {
+    addToHistory('error', 'exec: file must have .pubt extension');
+    return;
+  }
+
+  try {
+    await handlePubtFile(filePath);
+  } catch (error: any) {
+    const errorMsg = error.response?.data?.message || error.message || 'Unknown error';
+    addToHistory('error', `exec: ${errorMsg}`);
+  }
+};
+
+// start命令 - exec的别名
+const handleStart = async (args: string[]) => {
+  if (args.length === 0) {
+    addToHistory('error', 'start: missing .pubt file path');
+    addToHistory('info', 'Usage: start <pubt_file>');
+    return;
+  }
+
+  await handleExec(args);
+};
+
+// 处理.pubt文件执行（从桌面组件移植）
+const handlePubtFile = async (filePath: string) => {
+  try {
+    // 读取.pubt文件信息获取模拟大小
+    const response = await filesystemAPI.readFile(filePath);
+    if (response.data.status === 'success') {
+      // 使用文件的模拟大小作为内存大小，如果没有则使用默认值
+      const memorySize = response.data.data.simulated_size || 1024; // 默认1KB
+
+      // 创建进程，使用文件名（去掉.pubt扩展名）作为进程名
+      const fileName = filePath.split('/').pop() || 'unnamed';
+      const processName = fileName.replace(/\.pubt$/, '') || 'unnamed';
+
+      // 根据程序名称启动对应的应用
+      if (processName.toLowerCase().includes('音乐') || processName.toLowerCase().includes('music')) {
+        // 启动音乐播放器
+        windowsStore.openWindow('music-player', '在线音乐', 'MusicPlayer', {}, { center: true });
+        addToHistory('info', `音乐播放器 "${processName}" 已启动`);
+      } else if (processName.toLowerCase().includes('进程') || processName.toLowerCase().includes('process')) {
+        // 启动进程管理器
+        windowsStore.openWindow('process-manager', '进程管理器', 'ProcessManager', {}, { center: true });
+        addToHistory('info', `进程管理器 "${processName}" 已启动`);
+      } else if (processName.toLowerCase().includes('内存') || processName.toLowerCase().includes('memory')) {
+        // 启动内存管理器
+        windowsStore.openWindow('memory-manager', '内存管理器', 'MemoryManager', {}, { center: true });
+        addToHistory('info', `内存管理器 "${processName}" 已启动`);
+      } else if (processName.toLowerCase().includes('设备') || processName.toLowerCase().includes('device')) {
+        // 启动设备管理器
+        windowsStore.openWindow('device-manager', '设备管理器', 'DeviceManager', {}, { center: true });
+        addToHistory('info', `设备管理器 "${processName}" 已启动`);
+      } else if (processName.toLowerCase().includes('文件') || processName.toLowerCase().includes('file')) {
+        // 启动文件管理器
+        windowsStore.openWindow('file-manager', '文件管理器', 'FileManager', {}, { center: true });
+        addToHistory('info', `文件管理器 "${processName}" 已启动`);
+      } else if (processName.toLowerCase().includes('系统') || processName.toLowerCase().includes('system')) {
+        // 启动系统控制
+        windowsStore.openWindow('system-control', '系统控制', 'SystemControl', {}, { center: true });
+        addToHistory('info', `系统控制 "${processName}" 已启动`);
+      } else {
+        // 其他应用创建进程，使用智能算法
+        const randomPriority = Math.floor(Math.random() * 5) + 1;
+        const calculatedCPUTime = Math.max(200, Math.min(1000, Math.floor(memorySize / 32)));
+
+        const processResult = await processAPI.createProcess(
+          memorySize,
+          calculatedCPUTime,
+          randomPriority
+        );
+
+        if (processResult.data.status === 'success') {
+          const pid = processResult.data.data.pid;
+          addToHistory('info', `程序 "${processName}" 已启动`);
+          addToHistory('info', `进程ID: ${pid}, 内存: ${formatFileSize(memorySize)}, 优先级: ${randomPriority}, CPU时间: ${calculatedCPUTime}ms`);
+        }
+      }
+    } else {
+      throw new Error('无法读取.pubt文件信息');
+    }
+  } catch (err: any) {
+    throw err; // 重新抛出错误，让上层处理
+  }
+};
+
+// 尝试将命令作为.pubt文件执行
+const tryExecutePubtFile = async (cmd: string): Promise<boolean> => {
+  try {
+    // 尝试不同的路径查找.pubt文件
+    const possiblePaths = [
+      // 当前目录
+      currentDirectory.value === '/' ? `/${cmd}.pubt` : `${currentDirectory.value}/${cmd}.pubt`,
+      // 根目录（桌面）
+      `/${cmd}.pubt`,
+      // 直接使用命令作为完整路径（如果用户输入了完整路径）
+      cmd.endsWith('.pubt') ? (cmd.startsWith('/') ? cmd : currentDirectory.value === '/' ? `/${cmd}` : `${currentDirectory.value}/${cmd}`) : null
+    ].filter(Boolean);
+
+    for (const filePath of possiblePaths) {
+      try {
+        // 尝试读取文件以验证其存在
+        const testResponse = await filesystemAPI.readFile(filePath as string);
+        if (testResponse.data.status === 'success') {
+          // 文件存在，执行它
+          await handlePubtFile(filePath as string);
+          return true;
+        }
+      } catch (err) {
+        // 文件不存在，继续尝试下一个路径
+        continue;
+      }
+    }
+
+    return false; // 所有路径都尝试失败
+  } catch (err) {
+    return false;
+  }
+};
+
 const addToHistory = (type: HistoryItem['type'], content: string | object) => {
   history.value.push({ id: historyId++, type, content });
   scrollToBottom();
@@ -823,6 +1398,16 @@ const formatDateTime = (dateStr: string): string => {
     return date.toLocaleDateString('zh-CN') + ' ' + date.toLocaleTimeString('zh-CN', { hour12: false }).slice(0, 5);
   } catch {
     return '--------';
+  }
+};
+
+// 获取策略名称
+const getStrategyName = (strategy: number): string => {
+  switch (strategy) {
+    case 0: return 'Continuous';
+    case 1: return 'Partitioned';
+    case 2: return 'Paged';
+    default: return 'Unknown';
   }
 };
 </script>

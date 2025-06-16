@@ -31,6 +31,24 @@ void run_relationship_test() {
     auto relRes = cli.Post("/api/v1/processes/relationship", relBody.dump(), "application/json");
     assert(relRes && relRes->status == 201);
 
+    // 查询关系列表接口
+    auto relListRes = cli.Get("/api/v1/processes/relationships");
+    assert(relListRes && relListRes->status == 200);
+    {
+        auto relListBody = json::parse(relListRes->body);
+        assert(relListBody["status"] == "success");
+        bool found = false;
+        for (const auto& item : relListBody["data"]) {
+            if ((item["pid1"] == pidA && item["pid2"] == pidB) ||
+                (item["pid1"] == pidB && item["pid2"] == pidA)) {
+                assert(item["relation_type"] == "SYNC");
+                found = true;
+            }
+        }
+        assert(found);
+        std::cout << "查询进程关系列表接口: PASSED" << std::endl;
+    }
+
     // 3. 将 A 阻塞
     json blockBody = {{"state", "BLOCKED"}};
     auto blkRes = cli.Put("/api/v1/processes/" + std::to_string(pidA) + "/state", blockBody.dump(), "application/json");

@@ -5,6 +5,7 @@
 #include <deque>
 #include <unordered_set>
 #include <functional>
+#include <set>
 
 ProcessManager::ProcessManager(MemoryManager& mem_manager)
     : memory_manager(mem_manager), next_pid(1), current_running_process(nullptr) {}
@@ -361,4 +362,18 @@ std::vector<ProcessManager::GanttEntry> ProcessManager::generate_gantt_chart() c
     }
 
     return table;
+}
+
+// === 进程关系获取接口实现 ===
+std::vector<ProcessManager::RelationshipInfo> ProcessManager::get_all_relationships() const {
+    std::vector<RelationshipInfo> rels;
+    std::set<std::pair<ProcessID, ProcessID>> visited;
+    for (const auto& entry : relations_) {
+        ProcessID a = entry.first;
+        ProcessID b = entry.second.first;
+        if (visited.count({b,a})) continue; // 避免重复
+        visited.insert({a,b});
+        rels.push_back({a, b, entry.second.second});
+    }
+    return rels;
 } 

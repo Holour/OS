@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
 import { systemAPI, clockAPI, schedulerAPI } from '@/services/api';
+import { useDialogs } from '@/composables/useDialogs';
 
 const systemTime = ref<string>('');
 const clockStatus = ref<any>(null);
@@ -10,6 +11,8 @@ const clockInterval = ref(100);
 const isLoading = ref(true);
 const error = ref<string | null>(null);
 let intervalId: number;
+
+const { alert, success, error: showError, confirm } = useDialogs();
 
 const fetchSystemData = async () => {
   try {
@@ -48,41 +51,43 @@ const updateClockInterval = async () => {
   try {
     await clockAPI.setInterval(clockInterval.value);
     fetchSystemData();
-    alert('时钟间隔更新成功！');
+    success('时钟间隔更新成功！');
   } catch (err: any) {
-    error.value = err.message || 'Failed to update clock interval';
+    showError(err.message || 'Failed to update clock interval');
   }
 };
 
 const executeTick = async () => {
   try {
     await schedulerAPI.tick();
-    alert('调度器 tick 执行成功！');
+    success('调度器 tick 执行成功！');
     fetchSystemData();
   } catch (err: any) {
-    error.value = err.message || 'Failed to execute scheduler tick';
+    showError(err.message || 'Failed to execute scheduler tick');
   }
 };
 
 const systemShutdown = async () => {
-  if (!confirm('确定要关闭系统吗？')) return;
-
   try {
+    const confirmed = await confirm('确定要关闭系统吗？', '系统关闭');
+    if (!confirmed) return;
+
     await systemAPI.shutdown();
-    alert('系统关闭命令已发送');
+    success('系统关闭命令已发送');
   } catch (err: any) {
-    error.value = err.message || 'Failed to shutdown system';
+    showError(err.message || 'Failed to shutdown system');
   }
 };
 
 const systemReboot = async () => {
-  if (!confirm('确定要重启系统吗？')) return;
-
   try {
+    const confirmed = await confirm('确定要重启系统吗？', '系统重启');
+    if (!confirmed) return;
+
     await systemAPI.reboot();
-    alert('系统重启命令已发送');
+    success('系统重启命令已发送');
   } catch (err: any) {
-    error.value = err.message || 'Failed to reboot system';
+    showError(err.message || 'Failed to reboot system');
   }
 };
 

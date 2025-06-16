@@ -99,7 +99,7 @@ void initialize_system_state() {
     };
 
     std::vector<InitProcCfg> initial_processes = {
-        {"System Idle Process",  256 * 1024,          5,   10},
+        {"System Idle Process",  256 * 1024,          35,   10},
         {"System",              512 * 1024,         50,    1},
         {"smss.exe",            768 * 1024,         80,    1},
         {"csrss.exe",          1024 * 1024,        120,    2},
@@ -346,6 +346,16 @@ int main(int argc, char* argv[]) {
             }
         });
 
+        // 查询进程关系列表
+        svr.Get("/api/v1/processes/relationships", [&](const httplib::Request&, httplib::Response& res) {
+            json arr = json::array();
+            for (const auto& rel : process_manager->get_all_relationships()) {
+                std::string type_str = (rel.type == ProcessManager::RelationType::SYNC) ? "SYNC" : "MUTEX";
+                arr.push_back({{"pid1", rel.pid1}, {"pid2", rel.pid2}, {"relation_type", type_str}});
+            }
+            res.set_content(create_success_response(arr).dump(), "application/json; charset=utf-8");
+        });
+
         // --- 调度器 API ---
         svr.Post("/api/v1/scheduler/tick", [&](const httplib::Request&, httplib::Response& res) {
             auto scheduled_proc = process_manager->schedule();
@@ -434,12 +444,13 @@ int main(int argc, char* argv[]) {
                 }
                 data["partitions"] = partitions;
             } else {
-                // 分页策略，显示空闲块信息（简化显示）
-                json free_blocks = json::array();
-                for (const auto& block : memory_manager->get_free_blocks()) {
-                    free_blocks.push_back({{"base_address", block.base_address}, {"size", block.size}});
-                }
-                data["free_blocks"] = free_blocks;
+                // 分页策略，返回页框使用情况
+                json paging;
+                paging["total_pages"] = memory_manager->get_total_pages();
+                paging["used_pages"]  = memory_manager->get_used_pages();
+                paging["free_pages"]  = memory_manager->get_free_pages();
+
+                data["paging"] = paging;
             }
             
             res.set_content(create_success_response(data).dump(), "application/json; charset=utf-8");

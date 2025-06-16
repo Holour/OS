@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted, onUnmounted, computed, watch } from 'vue';
 import { processAPI, deviceAPI } from '@/services/api';
+import { useDialogs } from '@/composables/useDialogs';
 
 interface Song {
   id: string;
@@ -55,6 +56,11 @@ const processIds = ref<{
 // 设备监控
 const deviceMonitorInterval = ref<number | null>(null);
 const currentDeviceId = ref<number | null>(null);
+
+// 对话框相关
+const { alert, confirm, warning } = useDialogs();
+const showDeviceInterruptDialog = ref(false);
+const interruptedByDeviceRemoval = ref(false);
 
 // 创建音乐播放器进程组
 const createMusicProcessGroup = async () => {
@@ -151,17 +157,35 @@ const createProcessRelationships = async () => {
 // 加载音乐列表
 const loadMusicList = async () => {
   try {
-    // 模拟从resources/music目录加载音乐文件
+    // 模拟从resources/music目录加载音乐文件，包含完整的实际音乐文件列表
     const musicFiles = [
       'Idina Menzel - Let It Go.ogg',
+      'Josh Vietti - A Thousand Miles.mp3',
       '周深 - 蜃楼.mp3',
       '孙楠和周深 - 相见不如怀念.ogg',
       'Faouzia - RIP, Love.ogg',
       '陈奕迅 - 这样很好.ogg',
       '林俊杰 - 愿与愁.mp3',
       '周杰伦 - 最伟大的作品.mp3',
-      '周深 - 少管我.mp3'
+      '周深 - 少管我.mp3',
+      '陈楚生 - 将进酒.ogg',
+      '单依纯 - 珠玉.ogg'
     ];
+
+    // 预设真实的音乐时长（秒）
+    const musicDurations: Record<string, number> = {
+      'Idina Menzel - Let It Go.ogg': 225,  // 3:45
+      'Josh Vietti - A Thousand Miles.mp3': 258,  // 4:18
+      '周深 - 蜃楼.mp3': 245,  // 4:05
+      '孙楠和周深 - 相见不如怀念.ogg': 198,  // 3:18
+      'Faouzia - RIP, Love.ogg': 210,  // 3:30
+      '陈奕迅 - 这样很好.ogg': 268,  // 4:28
+      '林俊杰 - 愿与愁.mp3': 252,  // 4:12
+      '周杰伦 - 最伟大的作品.mp3': 290,  // 4:50
+      '周深 - 少管我.mp3': 235,  // 3:55
+      '陈楚生 - 将进酒.ogg': 315,  // 5:15
+      '单依纯 - 珠玉.ogg': 228   // 3:48
+    };
 
     songList.value = musicFiles.map((file, index) => {
       const [artist, titleWithExt] = file.split(' - ');
@@ -172,7 +196,7 @@ const loadMusicList = async () => {
         id: `song-${index}`,
         title,
         artist,
-        duration: Math.floor(Math.random() * 300) + 180, // 随机3-8分钟
+        duration: musicDurations[file] || 240, // 使用预设时长，默认4分钟
         file: `/resources/music/${file}`,
         format
       };
@@ -228,10 +252,16 @@ const handleDeviceSwitch = async (device: AudioDevice) => {
   }
 
   try {
-    const success = await switchAudioDevice(device.device_id);
-    if (success) {
-      showDeviceList.value = false;
-      error.value = null;
+    // 如果是由设备删除导致的中断，使用特殊的处理函数
+    if (interruptedByDeviceRemoval.value) {
+      await handleUserSelectedNewDevice(device.device_id);
+    } else {
+      // 正常的设备切换
+      const success = await switchAudioDevice(device.device_id);
+      if (success) {
+        showDeviceList.value = false;
+        error.value = null;
+      }
     }
   } catch (err: any) {
     console.error('切换设备失败:', err);
@@ -403,16 +433,22 @@ const handleDeviceRemoved = async () => {
     try {
       await processAPI.updateProcessState(processIds.value.player, 'BLOCKED');
       console.log('播放器进程已设置为阻塞状态，同步进程也将阻塞');
-
-      // 显示用户提示
-      error.value = '音频设备已断开，播放器进程已阻塞。请连接新设备以恢复播放。';
     } catch (err: any) {
       console.error('设置进程状态失败:', err);
     }
   }
 
-  // 开始监控新设备的出现
-  startNewDeviceMonitoring();
+  // 标记为设备被删除导致的中断
+  interruptedByDeviceRemoval.value = true;
+
+  // 显示设备中断对话框
+  showDeviceInterruptDialog.value = true;
+
+  // 显示警告对话框
+  await warning(
+    '音频设备已断开连接，播放已停止。\n\n请选择其他音频设备。',
+    '音频设备已断开'
+  );
 };
 
 // 处理设备错误的情况
@@ -423,48 +459,20 @@ const handleDeviceError = async () => {
     await pausePlay();
   }
 
-  error.value = '音频设备出现错误，播放已暂停';
+  // 显示设备错误警告
+  await warning(
+    '音频设备出现错误，播放已暂停。\n\n请检查设备连接。',
+    '音频设备错误'
+  );
 };
 
-// 监控新设备的出现
-const startNewDeviceMonitoring = () => {
-  const newDeviceInterval = setInterval(async () => {
-    try {
-      const response = await deviceAPI.getDevices();
-      if (response.data.status === 'success') {
-        // 筛选出空闲的音频设备
-        const audioKeywords = ['耳机', '音响', '音箱', '喇叭', 'speaker', 'headphone', 'audio', 'sound'];
-        const availableDevices = response.data.data.filter((device: AudioDevice) =>
-          (device.type === 'AUDIO' || audioKeywords.some(keyword =>
-            device.name.toLowerCase().includes(keyword.toLowerCase())
-          )) && device.status === 'IDLE'
-        );
-
-        if (availableDevices.length > 0) {
-          console.log('检测到新的音频设备，尝试恢复播放');
-          clearInterval(newDeviceInterval);
-          await handleNewDeviceAvailable(availableDevices[0]);
-        }
-      }
-    } catch (err: any) {
-      console.error('监控新设备失败:', err);
-    }
-  }, 3000); // 每3秒检查一次
-
-  // 60秒后停止监控（避免无限监控）
-  setTimeout(() => {
-    clearInterval(newDeviceInterval);
-    console.log('新设备监控已超时停止');
-  }, 60000);
-};
-
-// 处理新设备可用的情况
-const handleNewDeviceAvailable = async (newDevice: AudioDevice) => {
-  console.log('新设备可用，尝试恢复播放器进程状态');
+// 用户手动选择新设备后恢复播放
+const handleUserSelectedNewDevice = async (deviceId: number) => {
+  console.log('用户选择了新设备，尝试恢复播放器进程状态');
 
   try {
-    // 申请新设备
-    const success = await requestAudioDevice(newDevice.device_id);
+    // 申请用户选择的设备
+    const success = await requestAudioDevice(deviceId);
     if (success) {
       // 设置播放器进程为就绪状态（由于同步关系，其他进程也会就绪）
       if (processIds.value.player) {
@@ -472,21 +480,29 @@ const handleNewDeviceAvailable = async (newDevice: AudioDevice) => {
         console.log('播放器进程已设置为就绪状态，同步进程也将就绪');
       }
 
-      // 清除错误信息
+      // 清除中断状态
+      interruptedByDeviceRemoval.value = false;
+      showDeviceInterruptDialog.value = false;
+      showDeviceList.value = false;
       error.value = null;
 
-      console.log('音频设备已连接，播放器已恢复就绪状态');
+      console.log('新音频设备已连接，播放器已恢复就绪状态');
 
-      // 如果有当前歌曲，可以选择自动恢复播放
+      // 询问用户是否要恢复播放
       if (playerState.currentSong) {
-        console.log('检测到之前的播放内容，3秒后自动恢复播放');
-        setTimeout(async () => {
+        const shouldResume = await confirm(
+          `设备切换成功！是否要继续播放 "${playerState.currentSong.title}"？`,
+          '恢复播放'
+        );
+
+        if (shouldResume) {
           await resumePlay();
-        }, 3000);
+        }
       }
     }
   } catch (err: any) {
     console.error('恢复播放器状态失败:', err);
+    await alert('设备连接失败，请重试或选择其他设备。', '设备连接错误');
   }
 };
 
@@ -763,6 +779,10 @@ onUnmounted(async () => {
   // 停止设备监控
   stopDeviceMonitoring();
 
+  // 重置中断状态
+  interruptedByDeviceRemoval.value = false;
+  showDeviceInterruptDialog.value = false;
+
   // 终止所有进程
   try {
     if (processIds.value.main) {
@@ -879,6 +899,23 @@ onUnmounted(async () => {
       <span class="error-icon">⚠️</span>
       <span>{{ error }}</span>
       <button @click="error = null" class="dismiss-btn">关闭</button>
+    </div>
+
+    <!-- 设备中断提示 -->
+    <div v-if="interruptedByDeviceRemoval" class="device-interrupt-notice">
+      <div class="interrupt-content">
+        <div class="interrupt-icon">🚫</div>
+        <div class="interrupt-info">
+          <h4>设备中断</h4>
+          <p>音频设备已断开，播放被迫中断。</p>
+          <p>请从下方选择一个新的音频设备以恢复播放。</p>
+        </div>
+        <div class="interrupt-actions">
+          <button @click="showDeviceList = true" class="select-device-btn">
+            🎧 选择设备
+          </button>
+        </div>
+      </div>
     </div>
 
     <div v-else class="player-content">
@@ -1489,5 +1526,93 @@ onUnmounted(async () => {
 
 .list-container::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.5);
+}
+
+/* 设备中断提示样式 */
+.device-interrupt-notice {
+  margin: 16px 24px;
+  background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(255, 107, 107, 0.3);
+  overflow: hidden;
+  animation: slideInFromTop 0.5s ease-out;
+}
+
+@keyframes slideInFromTop {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.interrupt-content {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 24px;
+}
+
+.interrupt-icon {
+  font-size: 32px;
+  flex-shrink: 0;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+  100% { transform: scale(1); }
+}
+
+.interrupt-info {
+  flex: 1;
+  color: white;
+}
+
+.interrupt-info h4 {
+  margin: 0 0 8px 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: white;
+}
+
+.interrupt-info p {
+  margin: 4px 0;
+  font-size: 14px;
+  line-height: 1.4;
+  opacity: 0.95;
+}
+
+.interrupt-actions {
+  flex-shrink: 0;
+}
+
+.select-device-btn {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  padding: 10px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  transition: all 0.2s ease;
+  backdrop-filter: blur(10px);
+}
+
+.select-device-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+  border-color: rgba(255, 255, 255, 0.5);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(255, 255, 255, 0.2);
+}
+
+.select-device-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 6px rgba(255, 255, 255, 0.1);
 }
 </style>

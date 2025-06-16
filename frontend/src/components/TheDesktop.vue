@@ -4,8 +4,10 @@ import { useWindowsStore } from '@/stores/windows';
 import AppWindow from './AppWindow.vue';
 import DesktopIcon from './DesktopIcon.vue';
 import { filesystemAPI, processAPI } from '@/services/api';
+import { useDialogs } from '@/composables/useDialogs';
 
 const windowsStore = useWindowsStore();
+const { alert, success, error, confirm, prompt, showProperties: showFileProperties } = useDialogs();
 
 interface FileItem {
   name: string;
@@ -114,9 +116,17 @@ const handlePubtFile = async (file: FileItem) => {
         windowsStore.openWindow('music-player', '在线音乐', 'MusicPlayer', {}, { center: true });
         console.log(`音乐播放器 "${processName}" 已启动`);
       } else {
-        // 其他应用只创建进程
-        const processResult = await processAPI.createProcess(memorySize, 1000, 5);
-        console.log(`程序 "${processName}" 已启动，进程ID: ${processResult.data.data.pid}，分配内存: ${formatBytes(memorySize)}`);
+        // 其他应用创建进程，使用智能算法
+        const randomPriority = Math.floor(Math.random() * 5) + 1;
+        const calculatedCPUTime = Math.max(200, Math.min(1000, Math.floor(memorySize / 32)));
+
+        const processResult = await processAPI.createProcess(
+          memorySize,
+          calculatedCPUTime,
+          randomPriority,
+          processName
+        );
+        console.log(`程序 "${processName}" 已启动，进程ID: ${processResult.data.data.pid}，分配内存: ${formatBytes(memorySize)}，优先级: ${randomPriority}，CPU时间: ${calculatedCPUTime}ms`);
       }
     } else {
       throw new Error('无法读取.pubt文件信息');
@@ -239,51 +249,79 @@ const hideContextMenu = () => {
   showContextMenu.value = false;
 };
 
-const createNewFolder = () => {
-  const folderName = prompt('请输入文件夹名称:');
-  if (folderName && folderName.trim()) {
-    filesystemAPI.createDirectory(folderName.trim())
-      .then(() => {
-        loadDesktopFiles();
-        alert('文件夹创建成功!');
-      })
-      .catch((err) => {
-        alert(`创建文件夹失败: ${err.response?.data?.message || err.message}`);
-      });
+const createNewFolder = async () => {
+  try {
+    const folderName = await prompt({
+      title: '新建文件夹',
+      message: '请输入文件夹名称:',
+      inputLabel: '文件夹名称',
+      placeholder: '我的文件夹'
+    });
+
+    if (folderName && folderName.trim()) {
+      await filesystemAPI.createDirectory(folderName.trim());
+      loadDesktopFiles();
+      success('文件夹创建成功!');
+    }
+  } catch (err: any) {
+    if (err) { // 只有真正的错误才显示，取消操作不显示
+      error(`创建文件夹失败: ${err.response?.data?.message || err.message}`);
+    }
   }
   hideContextMenu();
 };
 
-const createNewFile = () => {
-  const fileName = prompt('请输入文件名称:');
-  if (fileName && fileName.trim()) {
-    const sizeStr = prompt('请输入模拟大小(例如: 1024, 1KB, 1MB):', '1024');
-    let simulatedSize = 1024; // 默认1KB
+const createNewFile = async () => {
+  try {
+    const result = await prompt({
+      title: '新建文件',
+      message: '请输入文件信息:',
+      multipleInputs: true,
+      inputsConfig: [
+        {
+          label: '文件名称',
+          value: '',
+          placeholder: '我的文件.txt',
+          required: true
+        },
+        {
+          label: '模拟大小',
+          value: '1024',
+          placeholder: '例如: 1024, 1KB, 1MB',
+          hint: '支持单位：B, KB, MB, GB'
+        }
+      ]
+    });
 
-    if (sizeStr && sizeStr.trim()) {
-      // 简单解析大小字符串
-      const size = parseFloat(sizeStr);
-      if (!isNaN(size)) {
-        if (sizeStr.toLowerCase().includes('kb')) {
-          simulatedSize = size * 1024;
-        } else if (sizeStr.toLowerCase().includes('mb')) {
-          simulatedSize = size * 1024 * 1024;
-        } else if (sizeStr.toLowerCase().includes('gb')) {
-          simulatedSize = size * 1024 * 1024 * 1024;
-        } else {
-          simulatedSize = size;
+    if (result && result[0].value.trim()) {
+      const fileName = result[0].value.trim();
+      const sizeStr = result[1].value.trim() || '1024';
+      let simulatedSize = 1024; // 默认1KB
+
+      if (sizeStr) {
+        // 简单解析大小字符串
+        const size = parseFloat(sizeStr);
+        if (!isNaN(size)) {
+          if (sizeStr.toLowerCase().includes('kb')) {
+            simulatedSize = size * 1024;
+          } else if (sizeStr.toLowerCase().includes('mb')) {
+            simulatedSize = size * 1024 * 1024;
+          } else if (sizeStr.toLowerCase().includes('gb')) {
+            simulatedSize = size * 1024 * 1024 * 1024;
+          } else {
+            simulatedSize = size;
+          }
         }
       }
-    }
 
-    filesystemAPI.createFile(fileName.trim(), simulatedSize)
-      .then(() => {
-        loadDesktopFiles();
-        console.log('文件创建成功!');
-      })
-      .catch((err) => {
-        console.error(`创建文件失败: ${err.response?.data?.message || err.message}`);
-      });
+      await filesystemAPI.createFile(fileName, simulatedSize);
+      loadDesktopFiles();
+      success('文件创建成功!');
+    }
+  } catch (err: any) {
+    if (err) { // 只有真正的错误才显示，取消操作不显示
+      error(`创建文件失败: ${err.response?.data?.message || err.message}`);
+    }
   }
   hideContextMenu();
 };
@@ -300,32 +338,42 @@ const openFile = () => {
   hideAllContextMenus();
 };
 
-const deleteFile = () => {
+const deleteFile = async () => {
   if (!contextMenuFile.value) return;
 
-  const confirmMsg = `确定要删除 "${contextMenuFile.value.name}" 吗？`;
-  if (confirm(confirmMsg)) {
-    filesystemAPI.delete(contextMenuFile.value.path)
-      .then(() => {
-        loadDesktopFiles();
-        selectedIcon.value = null;
-        console.log('删除成功!');
-      })
-      .catch((err) => {
-        console.error(`删除失败: ${err.response?.data?.message || err.message}`);
-      });
+  try {
+    const confirmed = await confirm(`确定要删除 "${contextMenuFile.value.name}" 吗？`, '删除确认');
+    if (confirmed) {
+      await filesystemAPI.delete(contextMenuFile.value.path);
+      loadDesktopFiles();
+      selectedIcon.value = null;
+      success('删除成功!');
+    }
+  } catch (err: any) {
+    error(`删除失败: ${err.response?.data?.message || err.message}`);
   }
   hideAllContextMenus();
 };
 
-const renameFile = () => {
+const renameFile = async () => {
   if (!contextMenuFile.value) return;
 
-  const newName = prompt('请输入新名称:', contextMenuFile.value.name);
-  if (newName && newName.trim() && newName !== contextMenuFile.value.name) {
-    // 这里需要实现重命名API，暂时显示提示
-    console.log(`重命名功能待实现: ${contextMenuFile.value.name} -> ${newName}`);
-    alert('重命名功能暂未实现');
+  try {
+    const newName = await prompt({
+      title: '重命名',
+      message: '请输入新名称:',
+      inputLabel: '新名称',
+      defaultValue: contextMenuFile.value.name,
+      placeholder: contextMenuFile.value.name
+    });
+
+    if (newName && newName.trim() && newName !== contextMenuFile.value.name) {
+      // 这里需要实现重命名API，暂时显示提示
+      console.log(`重命名功能待实现: ${contextMenuFile.value.name} -> ${newName}`);
+      alert('重命名功能暂未实现');
+    }
+  } catch (err) {
+    // 用户取消操作，不显示任何提示
   }
   hideAllContextMenus();
 };
@@ -333,15 +381,7 @@ const renameFile = () => {
 const showProperties = () => {
   if (!contextMenuFile.value) return;
 
-  const file = contextMenuFile.value;
-  const props = [
-    `名称: ${file.name}`,
-    `类型: ${file.type === 'directory' ? '文件夹' : '文件'}`,
-    `路径: ${file.path}`,
-    file.size ? `大小: ${file.size} 字节` : ''
-  ].filter(Boolean).join('\n');
-
-  alert(`文件属性:\n\n${props}`);
+  showFileProperties(contextMenuFile.value);
   hideAllContextMenus();
 };
 

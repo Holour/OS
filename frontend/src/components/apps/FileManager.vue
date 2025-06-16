@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
 import { filesystemAPI, processAPI } from '@/services/api';
+import { useDialogs } from '@/composables/useDialogs';
 
 // 接收props参数
 const props = defineProps<{
   initialPath?: string;
 }>();
+
+const { alert, success, error: showError, confirm, showProperties: showFileProperties } = useDialogs();
 
 interface FileItem {
   name: string;
@@ -129,14 +132,17 @@ const createDirectory = async () => {
 
 const deleteItem = async (itemName: string, recursive: boolean = false) => {
   const action = recursive ? '递归删除' : '删除';
-  if (!confirm(`确定要${action} ${itemName} 吗？`)) return;
 
   try {
+    const confirmed = await confirm(`确定要${action} ${itemName} 吗？`, '删除确认');
+    if (!confirmed) return;
+
     const itemPath = currentPath.value === '/' ? itemName : `${currentPath.value}/${itemName}`;
     await filesystemAPI.delete(itemPath, recursive);
     loadDirectory();
+    success(`${action}成功！`);
   } catch (err: any) {
-    error.value = `${action}失败: ${err.response?.data?.message || err.message || '未知错误'}`;
+    showError(`${action}失败: ${err.response?.data?.message || err.message || '未知错误'}`);
   }
 };
 
@@ -170,13 +176,20 @@ const handlePubtFile = async (fileName: string) => {
       // 使用文件的模拟大小作为内存大小
       const memorySize = response.data.data.simulated_size || 1024; // 默认1KB
 
-      // 创建进程，使用文件名（去掉.pubt扩展名）作为进程名
+      // 创建进程，使用智能算法
       const processName = fileName.replace(/\.pubt$/, '') || 'unnamed';
+      const randomPriority = Math.floor(Math.random() * 5) + 1;
+      const calculatedCPUTime = Math.max(200, Math.min(1000, Math.floor(memorySize / 32)));
 
-      const processResult = await processAPI.createProcess(processName, memorySize);
-      console.log(`程序 "${processName}" 已启动，进程ID: ${processResult.data.pid}，分配内存: ${formatBytes(memorySize)}`);
+      const processResult = await processAPI.createProcess(
+        memorySize,
+        calculatedCPUTime,
+        randomPriority,
+        processName
+      );
+      console.log(`程序 "${processName}" 已启动，进程ID: ${processResult.data.data.pid}，分配内存: ${formatBytes(memorySize)}，优先级: ${randomPriority}，CPU时间: ${calculatedCPUTime}ms`);
 
-      alert(`程序 "${processName}" 已启动！分配内存: ${formatBytes(memorySize)}`);
+      success(`程序 "${processName}" 已启动！\n分配内存: ${formatBytes(memorySize)}\n优先级: ${randomPriority}\nCPU时间: ${calculatedCPUTime}ms`);
     } else {
       throw new Error('无法读取.pubt文件信息');
     }
@@ -244,20 +257,22 @@ const recursiveDeleteFromMenu = () => {
   hideFileContextMenu();
 };
 
-const showFileProperties = () => {
+const showFilePropertiesDialog = () => {
   if (!contextMenuFile.value) return;
 
   const file = contextMenuFile.value;
-  const props = [
-    `名称: ${file.name}`,
-    `类型: ${file.type === 'directory' ? '文件夹' : '文件'}`,
-    `路径: ${currentPath.value === '/' ? '/' + file.name : currentPath.value + '/' + file.name}`,
-    file.simulated_size ? `模拟大小: ${formatBytes(file.simulated_size)}` : '',
-    `权限: ${file.permissions ? file.permissions.toString(8) : '未知'}`,
-    file.last_modified ? `修改时间: ${new Date(file.last_modified).toLocaleString()}` : ''
-  ].filter(Boolean).join('\n');
+  // 构造文件属性对象
+  const fileProps = {
+    name: file.name,
+    type: file.type,
+    size: file.simulated_size || 0,
+    simulated_size: file.simulated_size,
+    path: currentPath.value === '/' ? '/' + file.name : currentPath.value + '/' + file.name,
+    permissions: file.permissions?.toString(8),
+    last_modified: file.last_modified
+  };
 
-  alert(`文件属性:\n\n${props}`);
+  showFileProperties(fileProps);
   hideFileContextMenu();
 };
 
@@ -417,7 +432,7 @@ onUnmounted(() => {
         <span>递归删除</span>
       </div>
       <div class="menu-divider"></div>
-      <div class="menu-item" @click="showFileProperties">
+      <div class="menu-item" @click="showFilePropertiesDialog">
         <span class="menu-icon">ℹ️</span>
         <span>属性</span>
       </div>

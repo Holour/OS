@@ -9,6 +9,7 @@
 #include <ctime>
 #include <map>
 #include <variant>
+#include <unordered_map>
 
 // Constants for the file system layout
 const uint32_t BLOCK_SIZE = 4096; // 4 KB per block
@@ -152,6 +153,9 @@ public:
                                                  const std::string& end_time = "", 
                                                  const std::string& operation_type = "");
 
+    // --- Internal quick lookup (performance) ---
+    bool lookup_dir_entry(uint32_t dir_inode_idx, const std::string& name, uint32_t& out_inode_idx);
+
 private:
     // --- Internal disk I/O helpers ---
     void read_disk(uint64_t offset, void* buffer, size_t size);
@@ -172,9 +176,11 @@ private:
     void log_operation(const std::string& operation, const std::string& path, 
                       const std::string& status, const std::string& details = "");
 
-    char* disk_pool; // << Manages its own disk space
+    // 使用惰性分配的块存储来模拟磁盘，只有被写入的块才真正占用内存
+    std::unordered_map<uint32_t, std::unique_ptr<char[]>> block_storage;
     std::vector<Inode> inode_table;
     std::vector<bool> block_bitmap;
+    uint32_t next_block_cursor = 0; // 游标，加速顺序分配
     std::vector<FileSystemLog> operation_logs;
     AllocationStrategy current_strategy;
 };

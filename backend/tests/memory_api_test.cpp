@@ -57,13 +57,20 @@ void test_memory_status_api() {
                 std::cout << "  Allocation Strategy: " << strategy << std::endl;
                 
                 // 根据策略验证特定字段
-                if (strategy == 0 || strategy == 2) { // 连续分配或分页
+                if (strategy == 0) { // 连续分配
                     if (memory_data.contains("free_blocks")) {
                         std::cout << "  Free blocks count: " << memory_data["free_blocks"].size() << std::endl;
                     }
                 } else if (strategy == 1) { // 分区分配
                     if (memory_data.contains("partitions")) {
                         std::cout << "  Partitions count: " << memory_data["partitions"].size() << std::endl;
+                    }
+                } else if (strategy == 2) { // 分页分配
+                    if (memory_data.contains("paging")) {
+                        auto pg = memory_data["paging"];
+                        std::cout << "  Paging info -> total: " << pg["total_pages"]
+                                  << ", used: " << pg["used_pages"]
+                                  << ", free: " << pg["free_pages"] << std::endl;
                     }
                 }
             } else {

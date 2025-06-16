@@ -87,6 +87,11 @@ public:
     bool free_pages_for_process(ProcessID pid);
     std::optional<uint64_t> translate_virtual_to_physical(ProcessID pid, uint64_t virtual_address) const;
 
+    // 新增分页统计信息
+    uint64_t get_total_pages() const;
+    uint64_t get_used_pages() const;
+    uint64_t get_free_pages() const;
+
 private:
     char* memory_pool; // 模拟内存池
     std::list<FreeBlock> free_list; // 空闲块链表 (连续分配使用)

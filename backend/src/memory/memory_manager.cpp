@@ -391,4 +391,17 @@ void MemoryManager::write_memory(uint64_t address, const void* data, size_t size
         throw std::runtime_error("Invalid memory access in write");
     }
     std::memcpy(memory_pool + address, data, size);
+}
+
+// === 新增分页统计信息接口实现 ===
+uint64_t MemoryManager::get_total_pages() const {
+    return TOTAL_PAGES;
+}
+
+uint64_t MemoryManager::get_used_pages() const {
+    return page_frames.count();
+}
+
+uint64_t MemoryManager::get_free_pages() const {
+    return TOTAL_PAGES - page_frames.count();
 } 

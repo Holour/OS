@@ -59,6 +59,9 @@ public:
     // 基础接口（保持向后兼容）
     std::optional<ProcessID> create_process(uint64_t size, uint64_t cpu_time, uint32_t priority);
 
+    struct RelationshipInfo { ProcessID pid1; ProcessID pid2; RelationType type; };
+    std::vector<RelationshipInfo> get_all_relationships() const;
+
 private:
     MemoryManager& memory_manager;
     ProcessID next_pid;

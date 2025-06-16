@@ -14,12 +14,19 @@ interface PartitionInfo {
   owner_pid: number;
 }
 
+interface PagingInfo {
+  total_pages: number;
+  used_pages: number;
+  free_pages: number;
+}
+
 interface MemoryStatus {
   total_memory: number;
   used_memory: number;
   allocation_strategy: number;
   free_blocks?: MemoryBlock[];
   partitions?: PartitionInfo[];
+  paging?: PagingInfo;
 }
 
 const memoryStatus = ref<MemoryStatus | null>(null);
@@ -192,8 +199,8 @@ onUnmounted(() => {
       <div class="memory-layout">
         <h4>内存布局 ({{ strategyNames[memoryStatus?.allocation_strategy as keyof typeof strategyNames] }})</h4>
 
-        <!-- 连续分配和分页分配：显示空闲块 -->
-        <div v-if="memoryStatus?.free_blocks && (memoryStatus.allocation_strategy === 0 || memoryStatus.allocation_strategy === 2)" class="free-blocks">
+        <!-- 连续分配：显示空闲块 -->
+        <div v-if="memoryStatus?.free_blocks && memoryStatus.allocation_strategy === 0" class="free-blocks">
           <h5>空闲内存块</h5>
           <div class="blocks-container">
             <div
@@ -206,6 +213,64 @@ onUnmounted(() => {
                 <span class="address">0x{{ block.base_address.toString(16) }}</span>
                 <span class="size">{{ formatSize(block.size) }}</span>
                 <span class="status">空闲</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 分页分配：显示分页信息 -->
+        <div v-if="memoryStatus?.paging && memoryStatus.allocation_strategy === 2" class="paging-info">
+          <h5>分页内存信息</h5>
+          <div class="paging-container">
+            <div class="paging-stats">
+              <div class="paging-stat-item">
+                <span class="stat-label">总页框数:</span>
+                <span class="stat-value">{{ memoryStatus.paging.total_pages }}</span>
+              </div>
+              <div class="paging-stat-item">
+                <span class="stat-label">已使用页框:</span>
+                <span class="stat-value used">{{ memoryStatus.paging.used_pages }}</span>
+              </div>
+              <div class="paging-stat-item">
+                <span class="stat-label">空闲页框:</span>
+                <span class="stat-value free">{{ memoryStatus.paging.free_pages }}</span>
+              </div>
+            </div>
+
+            <!-- 分页使用率可视化 -->
+            <div class="paging-visual">
+              <div class="paging-bar">
+                <div
+                  class="paging-used-bar"
+                  :style="{ width: (memoryStatus.paging.used_pages / memoryStatus.paging.total_pages * 100) + '%' }"
+                  :title="`已使用: ${memoryStatus.paging.used_pages}页 / ${memoryStatus.paging.total_pages}页`"
+                ></div>
+              </div>
+              <div class="paging-legend">
+                <span class="legend-item">
+                  <span class="legend-color used-color"></span>
+                  已使用 ({{ memoryStatus.paging.used_pages }}页)
+                </span>
+                <span class="legend-item">
+                  <span class="legend-color free-color"></span>
+                  空闲 ({{ memoryStatus.paging.free_pages }}页)
+                </span>
+              </div>
+            </div>
+
+            <!-- 分页详细信息 -->
+            <div class="paging-details">
+              <div class="page-utilization">
+                <span class="utilization-label">页框利用率:</span>
+                <span class="utilization-value">
+                  {{ ((memoryStatus.paging.used_pages / memoryStatus.paging.total_pages) * 100).toFixed(1) }}%
+                </span>
+              </div>
+              <div class="page-size-info">
+                <span class="info-label">平均页大小:</span>
+                <span class="info-value">
+                  {{ formatSize(memoryStatus.total_memory / memoryStatus.paging.total_pages) }}
+                </span>
               </div>
             </div>
           </div>
@@ -606,5 +671,180 @@ onUnmounted(() => {
   0% { width: 0%; }
   50% { width: 70%; }
   100% { width: 100%; }
+}
+
+/* 分页显示样式 */
+.paging-info {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 15px;
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  margin-top: 10px;
+}
+
+.paging-info h5 {
+  margin: 0 0 15px 0;
+  color: #495057;
+  font-size: 14px;
+  font-weight: 600;
+  border-bottom: 2px solid #0078d4;
+  padding-bottom: 5px;
+}
+
+.paging-container {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.paging-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 15px;
+}
+
+.paging-stat-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: #ffffff;
+  padding: 12px;
+  border-radius: 6px;
+  border: 1px solid #dee2e6;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.stat-label {
+  font-size: 11px;
+  color: #6c757d;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.stat-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: #495057;
+}
+
+.stat-value.used {
+  color: #dc3545;
+}
+
+.stat-value.free {
+  color: #28a745;
+}
+
+.paging-visual {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: #ffffff;
+  padding: 15px;
+  border-radius: 6px;
+  border: 1px solid #dee2e6;
+}
+
+.paging-bar {
+  height: 20px;
+  background: linear-gradient(135deg, #e9ecef 0%, #f8f9fa 100%);
+  border: 1px solid #ced4da;
+  border-radius: 10px;
+  overflow: hidden;
+  position: relative;
+}
+
+.paging-used-bar {
+  height: 100%;
+  background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+  border-radius: 10px;
+  transition: width 0.5s ease-in-out;
+  position: relative;
+}
+
+.paging-used-bar::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.3) 50%, transparent 100%);
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.paging-legend {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #495057;
+  font-weight: 500;
+}
+
+.legend-color {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  border: 1px solid rgba(0,0,0,0.1);
+}
+
+.used-color {
+  background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+}
+
+.free-color {
+  background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+}
+
+.paging-details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 15px;
+}
+
+.page-utilization,
+.page-size-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #ffffff;
+  padding: 10px 15px;
+  border-radius: 6px;
+  border: 1px solid #dee2e6;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+
+.utilization-label,
+.info-label {
+  font-size: 12px;
+  color: #6c757d;
+  font-weight: 500;
+}
+
+.utilization-value,
+.info-value {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0078d4;
+}
+
+.utilization-value {
+  background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid #90caf9;
 }
 </style>

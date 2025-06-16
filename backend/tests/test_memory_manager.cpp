@@ -29,9 +29,9 @@ void test_simple_allocation() {
     mm.initialize();
     
     uint64_t size = 1024;
-    auto addr = mm.allocate(size);
-    assert(addr.has_value());
-    assert(addr.value() == 0);
+    auto blk_opt = mm.allocate(size);
+    assert(blk_opt.has_value());
+    assert(blk_opt->base_address == 0);
     assert(mm.get_used_memory() == size);
     assert(mm.get_free_blocks().front().base_address == size);
     assert(mm.get_free_blocks().front().size == MEMORY_SIZE - size);
@@ -44,8 +44,8 @@ void test_allocation_oom() {
     MemoryManager mm;
     mm.initialize();
 
-    auto addr = mm.allocate(MEMORY_SIZE + 1);
-    assert(!addr.has_value());
+    auto blk_oom = mm.allocate(MEMORY_SIZE + 1);
+    assert(!blk_oom.has_value());
     std::cout << "OK: Allocation correctly fails for oversized request." << std::endl;
 }
 
@@ -55,34 +55,34 @@ void test_free_and_merge() {
     mm.initialize();
 
     // 1. Allocate three blocks
-    auto addr1 = mm.allocate(100);
-    auto addr2 = mm.allocate(200);
-    auto addr3 = mm.allocate(300);
+    auto blk1 = mm.allocate(100);
+    auto blk2 = mm.allocate(200);
+    auto blk3 = mm.allocate(300);
     
-    assert(addr1.has_value() && addr2.has_value() && addr3.has_value());
+    assert(blk1.has_value() && blk2.has_value() && blk3.has_value());
     assert(mm.get_used_memory() == 600);
     
     // 2. Free the middle block (no merge)
-    mm.free(addr2.value(), 200);
+    mm.free(blk2->base_address, blk2->size);
     assert(mm.get_used_memory() == 400);
     assert(mm.get_free_blocks().size() == 2); // [Free at 100, size 200], [Free at 600, ...]
 
     // 3. Free the first block (merge with next)
-    mm.free(addr1.value(), 100);
+    mm.free(blk1->base_address, blk1->size);
     assert(mm.get_used_memory() == 300);
     assert(mm.get_free_blocks().size() == 2); // [Free at 0, size 300], [Free at 600, ...]
     assert(mm.get_free_blocks().front().base_address == 0);
     assert(mm.get_free_blocks().front().size == 300);
 
     // 4. Re-allocate addr1 and addr2, then free addr3, then addr2 (merge with prev)
-    addr1 = mm.allocate(100);
-    addr2 = mm.allocate(200);
-    mm.free(addr3.value(), 300); // [Free at 300, size 300], [Free at 600, ...]
-    mm.free(addr2.value(), 200); // [Free at 100, size 200], [Free at 300, size 300], ... -> merge
+    blk1 = mm.allocate(100);
+    blk2 = mm.allocate(200);
+    mm.free(blk3->base_address, blk3->size); // [Free at 300, size 300]
+    mm.free(blk2->base_address, blk2->size); // merge
     assert(mm.get_used_memory() == 100);
     
     // 5. Free the last block (merge with both)
-    mm.free(addr1.value(), 100);
+    mm.free(blk1->base_address, blk1->size);
     assert(mm.get_used_memory() == 0);
     assert(mm.get_free_blocks().size() == 1);
     assert(mm.get_free_blocks().front().size == MEMORY_SIZE);
