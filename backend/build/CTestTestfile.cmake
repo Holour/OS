@@ -1,10 +1,36 @@
 # CMake generated Testfile for 
-# Source directory: C:/Users/Holour/Desktop/OS/backend
-# Build directory: C:/Users/Holour/Desktop/OS/backend/build
+# Source directory: D:/OS/backend
+# Build directory: D:/OS/backend/build
 # 
 # This file includes the relevant testing commands required for 
 # testing this directory and lists subdirectories to be tested as well.
-add_test(FullApiIntegrationTest "C:/Users/Holour/Desktop/OS/backend/build/api_tests.exe")
-set_tests_properties(FullApiIntegrationTest PROPERTIES  _BACKTRACE_TRIPLES "C:/Users/Holour/Desktop/OS/backend/CMakeLists.txt;97;add_test;C:/Users/Holour/Desktop/OS/backend/CMakeLists.txt;0;")
-add_test(UnitTests "C:/Users/Holour/Desktop/OS/backend/build/unit_tests.exe")
-set_tests_properties(UnitTests PROPERTIES  _BACKTRACE_TRIPLES "C:/Users/Holour/Desktop/OS/backend/CMakeLists.txt;99;add_test;C:/Users/Holour/Desktop/OS/backend/CMakeLists.txt;0;")
+if(CTEST_CONFIGURATION_TYPE MATCHES "^([Dd][Ee][Bb][Uu][Gg])$")
+  add_test(FullApiIntegrationTest "D:/OS/backend/build/Debug/api_tests.exe")
+  set_tests_properties(FullApiIntegrationTest PROPERTIES  _BACKTRACE_TRIPLES "D:/OS/backend/CMakeLists.txt;105;add_test;D:/OS/backend/CMakeLists.txt;0;")
+elseif(CTEST_CONFIGURATION_TYPE MATCHES "^([Rr][Ee][Ll][Ee][Aa][Ss][Ee])$")
+  add_test(FullApiIntegrationTest "D:/OS/backend/build/Release/api_tests.exe")
+  set_tests_properties(FullApiIntegrationTest PROPERTIES  _BACKTRACE_TRIPLES "D:/OS/backend/CMakeLists.txt;105;add_test;D:/OS/backend/CMakeLists.txt;0;")
+elseif(CTEST_CONFIGURATION_TYPE MATCHES "^([Mm][Ii][Nn][Ss][Ii][Zz][Ee][Rr][Ee][Ll])$")
+  add_test(FullApiIntegrationTest "D:/OS/backend/build/MinSizeRel/api_tests.exe")
+  set_tests_properties(FullApiIntegrationTest PROPERTIES  _BACKTRACE_TRIPLES "D:/OS/backend/CMakeLists.txt;105;add_test;D:/OS/backend/CMakeLists.txt;0;")
+elseif(CTEST_CONFIGURATION_TYPE MATCHES "^([Rr][Ee][Ll][Ww][Ii][Tt][Hh][Dd][Ee][Bb][Ii][Nn][Ff][Oo])$")
+  add_test(FullApiIntegrationTest "D:/OS/backend/build/RelWithDebInfo/api_tests.exe")
+  set_tests_properties(FullApiIntegrationTest PROPERTIES  _BACKTRACE_TRIPLES "D:/OS/backend/CMakeLists.txt;105;add_test;D:/OS/backend/CMakeLists.txt;0;")
+else()
+  add_test(FullApiIntegrationTest NOT_AVAILABLE)
+endif()
+if(CTEST_CONFIGURATION_TYPE MATCHES "^([Dd][Ee][Bb][Uu][Gg])$")
+  add_test(UnitTests "D:/OS/backend/build/Debug/unit_tests.exe")
+  set_tests_properties(UnitTests PROPERTIES  _BACKTRACE_TRIPLES "D:/OS/backend/CMakeLists.txt;107;add_test;D:/OS/backend/CMakeLists.txt;0;")
+elseif(CTEST_CONFIGURATION_TYPE MATCHES "^([Rr][Ee][Ll][Ee][Aa][Ss][Ee])$")
+  add_test(UnitTests "D:/OS/backend/build/Release/unit_tests.exe")
+  set_tests_properties(UnitTests PROPERTIES  _BACKTRACE_TRIPLES "D:/OS/backend/CMakeLists.txt;107;add_test;D:/OS/backend/CMakeLists.txt;0;")
+elseif(CTEST_CONFIGURATION_TYPE MATCHES "^([Mm][Ii][Nn][Ss][Ii][Zz][Ee][Rr][Ee][Ll])$")
+  add_test(UnitTests "D:/OS/backend/build/MinSizeRel/unit_tests.exe")
+  set_tests_properties(UnitTests PROPERTIES  _BACKTRACE_TRIPLES "D:/OS/backend/CMakeLists.txt;107;add_test;D:/OS/backend/CMakeLists.txt;0;")
+elseif(CTEST_CONFIGURATION_TYPE MATCHES "^([Rr][Ee][Ll][Ww][Ii][Tt][Hh][Dd][Ee][Bb][Ii][Nn][Ff][Oo])$")
+  add_test(UnitTests "D:/OS/backend/build/RelWithDebInfo/unit_tests.exe")
+  set_tests_properties(UnitTests PROPERTIES  _BACKTRACE_TRIPLES "D:/OS/backend/CMakeLists.txt;107;add_test;D:/OS/backend/CMakeLists.txt;0;")
+else()
+  add_test(UnitTests NOT_AVAILABLE)
+endif()

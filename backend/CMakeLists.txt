@@ -6,6 +6,14 @@ project(os_simulator)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# MSVC 编码/宏设置 & 线程库
+if (MSVC)
+    add_compile_options(/utf-8)
+    add_definitions(-D_CRT_SECURE_NO_WARNINGS -DNOMINMAX)
+endif()
+
+find_package(Threads REQUIRED)
+
 # --- 包含目录 ---
 # 添加项目和第三方库的头文件目录
 include_directories(

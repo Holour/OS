@@ -219,55 +219,6 @@ npm run dev
 
 前端开发服务器通常在 `http://localhost:5173` 启动。
 
-### 🔧 运行脚本 (推荐)
-
-为方便使用，可以创建启动脚本：
-
-**start_backend.ps1** (放在项目根目录):
-```powershell
-# 启动后端服务器
-Write-Host "正在启动操作系统模拟器后端..." -ForegroundColor Green
-cd backend\build\Debug
-Start-Process -FilePath ".\os_simulator.exe" -NoNewWindow
-Write-Host "后端服务器已启动在 http://localhost:8080" -ForegroundColor Yellow
-```
-
-**start_frontend.ps1** (放在项目根目录):
-```powershell
-# 启动前端开发服务器
-Write-Host "正在启动前端界面..." -ForegroundColor Green
-cd frontend
-npm run dev
-```
-
-**start_all.ps1** (一键启动):
-```powershell
-# 一键启动前后端
-Write-Host "正在启动操作系统模拟器..." -ForegroundColor Cyan
-
-# 启动后端
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$PWD'; .\start_backend.ps1"
-
-# 等待后端启动
-Start-Sleep -Seconds 3
-
-# 启动前端
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$PWD'; .\start_frontend.ps1"
-
-Write-Host "系统启动完成！" -ForegroundColor Green
-Write-Host "后端: http://localhost:8080" -ForegroundColor Yellow
-Write-Host "前端: http://localhost:5173" -ForegroundColor Yellow
-```
-
-使用方法：
-```powershell
-# 设置执行策略（首次运行需要）
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-
-# 一键启动
-.\start_all.ps1
-```
-
 ---
 
 ## 🧩 核心功能模块
